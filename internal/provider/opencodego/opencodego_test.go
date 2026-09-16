@@ -313,28 +313,28 @@ func TestFetch_OKStatusUsesPercent(t *testing.T) {
 
 	want := []provider.Window{
 		{
-			Provider:    "opencode-go",
-			Name:        "5h",
-			Plan:        "go",
-			UsedPercent: 42,
-			ResetsAt:    mustTime(t, "2026-09-16T15:04:05Z"),
-			Period:      5 * time.Hour,
+			Provider:         "opencode-go",
+			Name:             "5h",
+			Plan:             "go",
+			RemainingPercent: 58,
+			ResetsAt:         mustTime(t, "2026-09-16T15:04:05Z"),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "opencode-go",
-			Name:        "weekly",
-			Plan:        "go",
-			UsedPercent: 18,
-			ResetsAt:    mustTime(t, "2026-09-21T00:00:00Z"),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "opencode-go",
+			Name:             "weekly",
+			Plan:             "go",
+			RemainingPercent: 82,
+			ResetsAt:         mustTime(t, "2026-09-21T00:00:00Z"),
+			Period:           7 * 24 * time.Hour,
 		},
 		{
-			Provider:    "opencode-go",
-			Name:        "monthly",
-			Plan:        "go",
-			UsedPercent: 7,
-			ResetsAt:    mustTime(t, "2026-10-01T00:00:00Z"),
-			Period:      30 * 24 * time.Hour,
+			Provider:         "opencode-go",
+			Name:             "monthly",
+			Plan:             "go",
+			RemainingPercent: 93,
+			ResetsAt:         mustTime(t, "2026-10-01T00:00:00Z"),
+			Period:           30 * 24 * time.Hour,
 		},
 	}
 	assertWindows(t, got, want)
@@ -351,7 +351,7 @@ func assertWindows(t *testing.T, got, want []provider.Window) {
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.Provider != w.Provider || g.Name != w.Name || g.Plan != w.Plan ||
-			g.UsedPercent != w.UsedPercent || g.Period != w.Period ||
+			g.RemainingPercent != w.RemainingPercent || g.Period != w.Period ||
 			g.RateLimited != w.RateLimited || !g.ResetsAt.Equal(w.ResetsAt) {
 			t.Errorf("window %d = %+v, want %+v", i, g, w)
 		}
@@ -388,12 +388,12 @@ func TestFetch_MonthlyPeriodDerivedFromResetsAt(t *testing.T) {
 		t.Fatalf("Fetch() err = %v", err)
 	}
 	assertWindows(t, got, []provider.Window{{
-		Provider:    "opencode-go",
-		Name:        "monthly",
-		Plan:        "go",
-		UsedPercent: 61,
-		ResetsAt:    mustTime(t, "2026-10-31T10:00:00Z"),
-		Period:      31 * 24 * time.Hour,
+		Provider:         "opencode-go",
+		Name:             "monthly",
+		Plan:             "go",
+		RemainingPercent: 39,
+		ResetsAt:         mustTime(t, "2026-10-31T10:00:00Z"),
+		Period:           31 * 24 * time.Hour,
 	}})
 }
 
@@ -465,7 +465,7 @@ func TestMonthlyPeriod_IndependentOfHostTimeZone(t *testing.T) {
 	}
 }
 
-func TestFetch_RateLimitedStatusForces100Percent(t *testing.T) {
+func TestFetch_RateLimitedStatusForcesZeroRemaining(t *testing.T) {
 	clearEnv(t)
 	// The rolling window reports percent 37 alongside status "rate-limited";
 	// the status wins.
@@ -477,21 +477,21 @@ func TestFetch_RateLimitedStatusForces100Percent(t *testing.T) {
 	}
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "opencode-go",
-			Name:        "5h",
-			Plan:        "go",
-			UsedPercent: 100,
-			ResetsAt:    mustTime(t, "2026-09-16T15:04:05Z"),
-			Period:      5 * time.Hour,
-			RateLimited: true,
+			Provider:         "opencode-go",
+			Name:             "5h",
+			Plan:             "go",
+			RemainingPercent: 0,
+			ResetsAt:         mustTime(t, "2026-09-16T15:04:05Z"),
+			Period:           5 * time.Hour,
+			RateLimited:      true,
 		},
 		{
-			Provider:    "opencode-go",
-			Name:        "weekly",
-			Plan:        "go",
-			UsedPercent: 18,
-			ResetsAt:    mustTime(t, "2026-09-21T00:00:00Z"),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "opencode-go",
+			Name:             "weekly",
+			Plan:             "go",
+			RemainingPercent: 82,
+			ResetsAt:         mustTime(t, "2026-09-21T00:00:00Z"),
+			Period:           7 * 24 * time.Hour,
 		},
 	})
 }
@@ -505,12 +505,12 @@ func TestFetch_MissingWindowIsSkipped(t *testing.T) {
 		t.Fatalf("Fetch() err = %v", err)
 	}
 	assertWindows(t, got, []provider.Window{{
-		Provider:    "opencode-go",
-		Name:        "weekly",
-		Plan:        "go",
-		UsedPercent: 55,
-		ResetsAt:    mustTime(t, "2026-09-21T00:00:00Z"),
-		Period:      7 * 24 * time.Hour,
+		Provider:         "opencode-go",
+		Name:             "weekly",
+		Plan:             "go",
+		RemainingPercent: 45,
+		ResetsAt:         mustTime(t, "2026-09-21T00:00:00Z"),
+		Period:           7 * 24 * time.Hour,
 	}})
 }
 
@@ -523,12 +523,12 @@ func TestFetch_IgnoresUnknownFieldsAndUnknownWindows(t *testing.T) {
 		t.Fatalf("Fetch() err = %v", err)
 	}
 	assertWindows(t, got, []provider.Window{{
-		Provider:    "opencode-go",
-		Name:        "5h",
-		Plan:        "go",
-		UsedPercent: 42,
-		ResetsAt:    mustTime(t, "2026-09-16T15:04:05Z"),
-		Period:      5 * time.Hour,
+		Provider:         "opencode-go",
+		Name:             "5h",
+		Plan:             "go",
+		RemainingPercent: 58,
+		ResetsAt:         mustTime(t, "2026-09-16T15:04:05Z"),
+		Period:           5 * time.Hour,
 	}})
 }
 
@@ -569,12 +569,12 @@ func TestFetch_DecimalPercentIsPreserved(t *testing.T) {
 		t.Fatalf("Fetch() err = %v", err)
 	}
 	assertWindows(t, got, []provider.Window{{
-		Provider:    "opencode-go",
-		Name:        "5h",
-		Plan:        "go",
-		UsedPercent: 42.5,
-		ResetsAt:    mustTime(t, "2026-09-16T15:04:05Z"),
-		Period:      5 * time.Hour,
+		Provider:         "opencode-go",
+		Name:             "5h",
+		Plan:             "go",
+		RemainingPercent: 57.5,
+		ResetsAt:         mustTime(t, "2026-09-16T15:04:05Z"),
+		Period:           5 * time.Hour,
 	}})
 }
 

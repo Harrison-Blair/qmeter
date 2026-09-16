@@ -138,9 +138,9 @@ func TestErrors_ValueNotPointer_AsContract(t *testing.T) {
 
 func TestWindowJSON_OmitsZeroResetsAt(t *testing.T) {
 	w := provider.Window{
-		Provider:    "claude",
-		Name:        "5h",
-		UsedPercent: 42.0,
+		Provider:         "claude",
+		Name:             "5h",
+		RemainingPercent: 42.0,
 	}
 
 	b, err := json.Marshal(w)
@@ -160,10 +160,10 @@ func TestWindowJSON_OmitsZeroResetsAt(t *testing.T) {
 
 func TestWindowJSON_PeriodIsWholeSeconds(t *testing.T) {
 	w := provider.Window{
-		Provider:    "claude",
-		Name:        "5h",
-		UsedPercent: 42.0,
-		Period:      5 * time.Hour,
+		Provider:         "claude",
+		Name:             "5h",
+		RemainingPercent: 42.0,
+		Period:           5 * time.Hour,
 	}
 
 	b, err := json.Marshal(w)
@@ -187,9 +187,9 @@ func TestWindowJSON_PeriodIsWholeSeconds(t *testing.T) {
 
 func TestWindowJSON_OmitsZeroPeriod(t *testing.T) {
 	w := provider.Window{
-		Provider:    "claude",
-		Name:        "5h",
-		UsedPercent: 42.0,
+		Provider:         "claude",
+		Name:             "5h",
+		RemainingPercent: 42.0,
 	}
 
 	b, err := json.Marshal(w)
@@ -209,9 +209,9 @@ func TestWindowJSON_OmitsZeroPeriod(t *testing.T) {
 
 func TestWindowJSON_OmitsEmptyPlan(t *testing.T) {
 	w := provider.Window{
-		Provider:    "cursor",
-		Name:        "total",
-		UsedPercent: 4.5,
+		Provider:         "cursor",
+		Name:             "total",
+		RemainingPercent: 4.5,
 	}
 
 	b, err := json.Marshal(w)
@@ -231,10 +231,10 @@ func TestWindowJSON_OmitsEmptyPlan(t *testing.T) {
 
 func TestWindowJSON_IncludesPlanWhenSet(t *testing.T) {
 	w := provider.Window{
-		Provider:    "claude",
-		Name:        "5h",
-		Plan:        "max",
-		UsedPercent: 42.0,
+		Provider:         "claude",
+		Name:             "5h",
+		Plan:             "max",
+		RemainingPercent: 42.0,
 	}
 
 	b, err := json.Marshal(w)
@@ -252,12 +252,12 @@ func TestWindowJSON_IncludesPlanWhenSet(t *testing.T) {
 	}
 }
 
-func TestWindowJSON_RateLimitedAndUsedPercentAlwaysPresent(t *testing.T) {
+func TestWindowJSON_RateLimitedAndRemainingPercentAlwaysPresent(t *testing.T) {
 	w := provider.Window{
-		Provider:    "opencode-go",
-		Name:        "monthly",
-		UsedPercent: 0,
-		RateLimited: false,
+		Provider:         "opencode-go",
+		Name:             "monthly",
+		RemainingPercent: 0,
+		RateLimited:      false,
 	}
 
 	b, err := json.Marshal(w)
@@ -273,18 +273,18 @@ func TestWindowJSON_RateLimitedAndUsedPercentAlwaysPresent(t *testing.T) {
 	if got, ok := m["rate_limited"]; !ok || got != false {
 		t.Errorf("rate_limited = %v, ok=%v, want false, ok=true", got, ok)
 	}
-	if got, ok := m["used_percent"]; !ok || got != float64(0) {
-		t.Errorf("used_percent = %v, ok=%v, want 0, ok=true", got, ok)
+	if got, ok := m["remaining_percent"]; !ok || got != float64(0) {
+		t.Errorf("remaining_percent = %v, ok=%v, want 0, ok=true", got, ok)
 	}
 }
 
 func TestWindowJSON_ResetsAtIsRFC3339(t *testing.T) {
 	resetsAt := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	w := provider.Window{
-		Provider:    "claude",
-		Name:        "5h",
-		UsedPercent: 42.0,
-		ResetsAt:    resetsAt,
+		Provider:         "claude",
+		Name:             "5h",
+		RemainingPercent: 42.0,
+		ResetsAt:         resetsAt,
 	}
 
 	b, err := json.Marshal(w)
@@ -308,13 +308,13 @@ func TestWindowJSON_ResetsAtIsRFC3339(t *testing.T) {
 
 func TestWindowJSON_ExactBytes(t *testing.T) {
 	windows := []provider.Window{{
-		Provider:    "claude",
-		Name:        "5h",
-		Plan:        "max",
-		UsedPercent: 42,
-		ResetsAt:    time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC),
-		Period:      5 * time.Hour,
-		RateLimited: true,
+		Provider:         "claude",
+		Name:             "5h",
+		Plan:             "max",
+		RemainingPercent: 42,
+		ResetsAt:         time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC),
+		Period:           5 * time.Hour,
+		RateLimited:      true,
 	}}
 
 	b, err := json.Marshal(windows)
@@ -323,9 +323,34 @@ func TestWindowJSON_ExactBytes(t *testing.T) {
 	}
 
 	got := string(b)
-	want := `[{"provider":"claude","name":"5h","plan":"max","used_percent":42,"resets_at":"2026-09-15T12:00:00Z","period_seconds":18000,"rate_limited":true}]`
+	want := `[{"provider":"claude","name":"5h","plan":"max","remaining_percent":42,"resets_at":"2026-09-15T12:00:00Z","period_seconds":18000,"rate_limited":true}]`
 	if got != want {
 		t.Errorf("Marshal() = %s, want %s", got, want)
+	}
+}
+
+func TestRemainingFromUsed(t *testing.T) {
+	tests := []struct {
+		name string
+		used float64
+		want float64
+	}{
+		{"nothing used is everything remaining", 0, 100},
+		{"fully used is nothing remaining", 100, 0},
+		{"half used", 50, 50},
+		{"keeps one decimal place", 18.5, 81.5},
+		{"keeps two decimal places", 71.25, 28.75},
+		{"above 100 clamps to 0, never negative", 120, 0},
+		{"just above 100 clamps to 0", 100.5, 0},
+		{"below 0 clamps to 100, never above 100", -5, 100},
+		{"far below 0 clamps to 100", -250, 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := provider.RemainingFromUsed(tt.used); got != tt.want {
+				t.Errorf("RemainingFromUsed(%v) = %v, want %v", tt.used, got, tt.want)
+			}
+		})
 	}
 }
 

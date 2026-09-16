@@ -15,7 +15,7 @@ import (
 var _ provider.Provider = (*providertest.Fake)(nil)
 
 func TestSucceeding_DetectsAndFetchesWindows(t *testing.T) {
-	windows := []provider.Window{{Provider: "claude", Name: "5h", UsedPercent: 10}}
+	windows := []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 10}}
 	p := providertest.Succeeding("claude", windows)
 
 	if got := p.ID(); got != "claude" {
@@ -52,7 +52,7 @@ func TestErroring_DetectsButFetchFails(t *testing.T) {
 }
 
 func TestSlow_FetchReturnsAfterDelay(t *testing.T) {
-	windows := []provider.Window{{Provider: "cursor", Name: "total", UsedPercent: 5}}
+	windows := []provider.Window{{Provider: "cursor", Name: "total", RemainingPercent: 5}}
 	p := providertest.Slow("cursor", 20*time.Millisecond, windows)
 
 	start := time.Now()
@@ -119,7 +119,7 @@ func TestUndetected_FetchesZeroWhenNeverCalled(t *testing.T) {
 }
 
 func TestFake_Fetches_CountsCalls(t *testing.T) {
-	windows := []provider.Window{{Provider: "claude", Name: "5h", UsedPercent: 10}}
+	windows := []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 10}}
 	p := providertest.Succeeding("claude", windows)
 
 	if got := p.Fetches(); got != 0 {

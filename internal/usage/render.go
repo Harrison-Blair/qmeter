@@ -26,7 +26,7 @@ func RenderText(w io.Writer, r Result) error {
 // Layout contract — the fixed table layout this package renders, asserted by
 // the golden test in render_test.go: the writer
 // is tabwriter.NewWriter(out, 0, 8, 2, ' ', 0); data rows are written as
-// "provider\twindow\tplan\tused\tresets\n" so the RESETS cell — the last
+// "provider\twindow\tplan\tremaining\tresets\n" so the RESETS cell — the last
 // cell on the line, and therefore never tab-terminated — is neither padded
 // nor counted towards any column width; failure and not-detected rows are
 // two-cell "provider\tmessage\n" lines, which keeps their long message out
@@ -39,7 +39,7 @@ func renderText(w io.Writer, r Result, now time.Time) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
-	if _, err := fmt.Fprint(tw, "PROVIDER\tWINDOW\tPLAN\tUSED\tRESETS\n"); err != nil {
+	if _, err := fmt.Fprint(tw, "PROVIDER\tWINDOW\tPLAN\tREMAINING\tRESETS\n"); err != nil {
 		return err
 	}
 	for _, win := range r.Windows {
@@ -48,7 +48,7 @@ func renderText(w io.Writer, r Result, now time.Time) error {
 			plan = "-"
 		}
 		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%.1f%%\t%s\n",
-			win.Provider, win.Name, plan, win.UsedPercent, resetsCell(win, now)); err != nil {
+			win.Provider, win.Name, plan, win.RemainingPercent, resetsCell(win, now)); err != nil {
 			return err
 		}
 	}

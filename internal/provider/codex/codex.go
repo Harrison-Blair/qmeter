@@ -437,11 +437,11 @@ func (w limitWindow) normalize(name, plan string, now time.Time) (provider.Windo
 		return provider.Window{}, false
 	}
 	out := provider.Window{
-		Provider:    providerID,
-		Name:        name,
-		Plan:        plan,
-		UsedPercent: *w.UsedPercent,
-		Period:      w.period(),
+		Provider:         providerID,
+		Name:             name,
+		Plan:             plan,
+		RemainingPercent: provider.RemainingFromUsed(*w.UsedPercent),
+		Period:           w.period(),
 		// The endpoint has no explicit rate-limited flag; a window with
 		// nothing left is exactly what that flag means.
 		RateLimited: *w.UsedPercent >= 100,
