@@ -2,6 +2,7 @@ package usage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -93,6 +94,75 @@ func TestCmd_UnknownProviderExitsNonZero(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("unexpected stdout: %q", out.String())
+	}
+}
+
+func TestCmd_UnknownArgumentIsReported(t *testing.T) {
+	root, _, errOut := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage", "foo"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error for an unexpected argument")
+	}
+	// Silencing cobra's own error reporting for the whole command would
+	// make this exit 1 with an empty stderr — a silent failure.
+	if errOut.Len() == 0 {
+		t.Fatalf("nothing on stderr for %v", err)
+	}
+}
+
+func TestCmd_UnknownFlagIsReported(t *testing.T) {
+	root, _, errOut := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage", "--bogus"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error for an unknown flag")
+	}
+	if errOut.Len() == 0 {
+		t.Fatalf("nothing on stderr for %v", err)
+	}
+}
+
+func TestCmd_CancelledContextPrintsNothingAndExitsZero(t *testing.T) {
+	for _, args := range [][]string{{"usage"}, {"usage", "--json"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			root, out, errOut := newTestRoot(t,
+				providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+			)
+			root.SetArgs(args)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			if err := root.ExecuteContext(ctx); err != nil {
+				t.Fatalf("a cancelled run is not an error: %v", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("a cancelled run printed output: %q", out.String())
+			}
+			if errOut.Len() != 0 {
+				t.Fatalf("a cancelled run printed to stderr: %q", errOut.String())
+			}
+		})
+	}
+}
+
+func TestCmd_ValidProvidersMatchesTheRealRegistry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	ids := make([]string, 0, 4)
+	for _, p := range usage.Registry() {
+		ids = append(ids, p.ID())
+	}
+	if want := strings.Join(ids, ", "); validProviders != want {
+		t.Fatalf("validProviders = %q, want %q", validProviders, want)
 	}
 }
 
