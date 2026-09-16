@@ -16,6 +16,10 @@ Go source, `go.mod`/`go.sum`, Markdown docs, `LICENSE`, and `.github/`. Keep it 
 Only add a new `!` allow rule when a file the project genuinely needs is being ignored,
 and add the narrowest pattern that covers it. Never remove the leading `*`.
 
+## Branching
+
+Develop on `dev` or feature branches off `dev`. Changes reach `main` only through a pull request, which the owner approves. Never commit directly to `main`.
+
 ## Instructions
 
 <!-- Add agent instructions below. -->
