@@ -432,18 +432,23 @@ func TestFetch_ParsesScopedPerModelLimits_SkipsUnknown(t *testing.T) {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
 
-	// Kept: the documented five_hour window, then the two well-formed scoped
-	// entries, named by their group. Skipped: an entry with no group, one
-	// with no percent, a non-object list element, an entry whose group
-	// duplicates a window already reported, and an unknown object that is not
-	// a scoped-limit list at all.
+	// Kept: the documented five_hour window, then the two well-formed entries,
+	// which carry no kind and no scope and so fall back to their group name,
+	// and last an entry whose group collides with the documented window's
+	// name but resets at its own instant — a different limit, so it is
+	// renamed rather than dropped. Skipped: an entry with no group, one with
+	// no percent, a non-object list element, an entry that restates five_hour
+	// (same reset instant), and an unknown object that is not a limits list
+	// at all.
 	assertWindows(t, got, []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
 		{Provider: "claude", Name: "claude-opus-4-6", Plan: "max", UsedPercent: 55,
 			ResetsAt: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)},
 		{Provider: "claude", Name: "claude-haiku-4-5", Plan: "max", UsedPercent: 3.5,
-			ResetsAt: time.Unix(1789776000, 0).UTC()},
+			ResetsAt: time.Unix(1789776060, 0).UTC()},
+		{Provider: "claude", Name: "5h (2)", Plan: "max", UsedPercent: 77,
+			ResetsAt: time.Date(2026, 9, 16, 23, 45, 0, 0, time.UTC)},
 	})
 }
 
@@ -627,14 +632,16 @@ func TestFetch_ScopedLimitsOrderedBySectionKey(t *testing.T) {
 	}
 	// Four scoped sections, so an unsorted implementation cannot pass by
 	// landing on the right permutation: only 1 of the 24 orders is sorted.
-	scopedReset := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	// Each section resets at its own instant, since a shared instant would
+	// mean the same limit restated rather than four different ones.
+	resetAt := func(sec int) time.Time { return time.Date(2026, 9, 19, 0, 0, sec, 0, time.UTC) }
 	assertWindows(t, got, []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "alpha-model", Plan: "max", UsedPercent: 20, ResetsAt: scopedReset},
-		{Provider: "claude", Name: "bravo-model", Plan: "max", UsedPercent: 40, ResetsAt: scopedReset},
-		{Provider: "claude", Name: "mike-model", Plan: "max", UsedPercent: 60, ResetsAt: scopedReset},
-		{Provider: "claude", Name: "zulu-model", Plan: "max", UsedPercent: 80, ResetsAt: scopedReset},
+		{Provider: "claude", Name: "alpha-model", Plan: "max", UsedPercent: 20, ResetsAt: resetAt(1)},
+		{Provider: "claude", Name: "bravo-model", Plan: "max", UsedPercent: 40, ResetsAt: resetAt(2)},
+		{Provider: "claude", Name: "mike-model", Plan: "max", UsedPercent: 60, ResetsAt: resetAt(3)},
+		{Provider: "claude", Name: "zulu-model", Plan: "max", UsedPercent: 80, ResetsAt: resetAt(4)},
 	})
 }
 
@@ -664,5 +671,100 @@ func TestFetch_ResponseWithNoKnownWindowsErrors(t *testing.T) {
 				t.Errorf("windows = %+v, want nil", got)
 			}
 		})
+	}
+}
+
+func TestFetch_ParsesLiveShape(t *testing.T) {
+	// The live response repeats the documented windows inside a top-level
+	// "limits" array: a "session" entry restating five_hour and a
+	// "weekly_all" entry restating seven_day, both sharing those windows'
+	// exact reset instants, plus a genuinely distinct per-model
+	// "weekly_scoped" limit whose reset instant differs in the sub-second
+	// digits. The restatements must not become extra rows; the per-model
+	// limit must survive, even though it shares the group name "weekly".
+	srv, _ := serveFixture(t, "usage_live_shape.json")
+	p := newProvider(t, pointAt(srv)...)
+
+	got, err := p.Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+
+	sessionReset := time.Date(2026, 9, 16, 15, 30, 0, 947517000, time.UTC)
+	weeklyReset := time.Date(2026, 9, 21, 10, 0, 0, 947543000, time.UTC)
+	scopedReset := time.Date(2026, 9, 21, 10, 0, 0, 947816000, time.UTC)
+	const week = 7 * 24 * time.Hour
+	assertWindows(t, got, []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 41, ResetsAt: sessionReset, Period: 5 * time.Hour},
+		{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 22, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "sonnet weekly", Plan: "max", UsedPercent: 9, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "opus weekly", Plan: "max", UsedPercent: 3, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 3, ResetsAt: scopedReset, Period: week},
+	})
+	for _, w := range got {
+		if w.Name == "session" || w.Name == "weekly_all" {
+			t.Errorf("window %q was emitted; a limits entry restating a documented window must be dropped", w.Name)
+		}
+	}
+}
+
+func TestFetch_ScopedNamesComeFromScopeAndKind(t *testing.T) {
+	srv, _ := serveFixture(t, "usage_scoped_naming.json")
+	p := newProvider(t, pointAt(srv)...)
+
+	got, err := p.Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	// A scoped entry is named after its model; a weekly kind takes the
+	// "<model> weekly" form the documented windows already use, any other
+	// kind is appended as-is, and an entry with no scope falls back to its
+	// kind, lowercased like the display-name path (the fixture sends
+	// "MONTHLY_ALL"). Two limits that end up with the same name both survive
+	// — the second gets a " (2)" suffix — because they are different limits.
+	assertWindows(t, got, []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 10,
+			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 100000000, time.UTC), Period: 5 * time.Hour},
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 30,
+			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 100000000, time.UTC), Period: 7 * 24 * time.Hour},
+		{Provider: "claude", Name: "claude opus 4.6 weekly (2)", Plan: "max", UsedPercent: 40,
+			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 200000000, time.UTC), Period: 7 * 24 * time.Hour},
+		{Provider: "claude", Name: "claude haiku 4.5 session", Plan: "max", UsedPercent: 15,
+			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 500000000, time.UTC), Period: 5 * time.Hour},
+		{Provider: "claude", Name: "monthly_all", Plan: "max", UsedPercent: 55,
+			ResetsAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Period: 0},
+	})
+}
+
+func TestFetch_ScopedLimitsSharingAnInstantBothAppear(t *testing.T) {
+	// Two per-model limits can legitimately reset at the same instant — the
+	// vendor already emits several documented windows at one identical
+	// instant — so the instant only ever identifies a restatement of a
+	// DOCUMENTED window, never one scoped entry against another.
+	srv, _ := serveFixture(t, "usage_scoped_same_instant.json")
+	p := newProvider(t, pointAt(srv)...)
+
+	got, err := p.Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	const week = 7 * 24 * time.Hour
+	sharedReset := time.Date(2026, 9, 21, 10, 0, 0, 900000000, time.UTC)
+	assertWindows(t, got, []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 10,
+			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 100000000, time.UTC), Period: 5 * time.Hour},
+		{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 20,
+			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 100000000, time.UTC), Period: week},
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 30,
+			ResetsAt: sharedReset, Period: week},
+		{Provider: "claude", Name: "claude sonnet 4.5 weekly", Plan: "max", UsedPercent: 45,
+			ResetsAt: sharedReset, Period: week},
+	})
+	// The session entry restating five_hour is still dropped: dedup against
+	// the documented windows is unchanged.
+	for _, w := range got {
+		if w.Name == "session" {
+			t.Error("window \"session\" was emitted; it restates five_hour and must be dropped")
+		}
 	}
 }
