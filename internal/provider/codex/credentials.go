@@ -154,8 +154,11 @@ func (p *Provider) storePath() (string, error) {
 // errAPIKeyMode reports a store signed in with an OpenAI API key rather than
 // a ChatGPT account. The ChatGPT usage endpoint has nothing to say about such
 // an account, so this is an unsupported configuration, not a login problem
-// and not a parse failure. Worded to read after credstore's "credential
-// store: " prefix.
+// and not a parse failure.
+//
+// It is a sentinel because both callers match it: Detect still counts such a
+// store as detected (it exists and parses), and Fetch reports this sentence
+// verbatim, without the "credential store: " prefix credstore wraps it in.
 var errAPIKeyMode = errors.New(
 	`signed in with an API key (auth_mode "apikey"); Codex usage limits exist only for ChatGPT sign-in`)
 
