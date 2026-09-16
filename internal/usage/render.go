@@ -10,8 +10,9 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
-// RenderText writes r as the human-readable table ruled in docs/plan.md,
-// counting the RESETS column down from time.Now().
+// RenderText writes r as the human-readable table described by the layout
+// contract on renderText below, counting the RESETS column down from
+// time.Now().
 //
 // It formats only what Run already decided: every message in r.Errors and
 // r.Undetected is final text and is printed verbatim, never re-wrapped.
@@ -22,7 +23,8 @@ func RenderText(w io.Writer, r Result) error {
 // renderText is RenderText with an injectable "now" so the golden test is
 // deterministic.
 //
-// Layout contract (docs/plan.md, "Command surface and output"): the writer
+// Layout contract — the fixed table layout this package renders, asserted by
+// the golden test in render_test.go: the writer
 // is tabwriter.NewWriter(out, 0, 8, 2, ' ', 0); data rows are written as
 // "provider\twindow\tplan\tused\tresets\n" so the RESETS cell — the last
 // cell on the line, and therefore never tab-terminated — is neither padded
@@ -125,7 +127,7 @@ type jsonUndetected struct {
 	Reason   string `json:"reason"`
 }
 
-// RenderJSON writes r as the JSON envelope ruled in docs/plan.md —
+// RenderJSON writes r as the JSON envelope this package's callers consume —
 // {"windows":[...],"errors":[...],"undetected":[...]} — with all three keys
 // always present, every array non-null even when Result's slices are nil,
 // and one trailing newline.

@@ -21,7 +21,7 @@ import (
 // deliberate — Detect must report a store with an expired credential as
 // present.
 //
-// This decoder is intentionally private to this package: per the plan it must
+// This decoder is intentionally private to this package: by design it must
 // neither import nor be imported by the Codex id_token decoder. If the two
 // ever converge, the shared logic moves to a new internal/lib/jwt package.
 func userIDFromJWT(token string) (string, error) {
