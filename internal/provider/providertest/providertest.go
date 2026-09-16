@@ -6,6 +6,7 @@ package providertest
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/provider"
@@ -27,6 +28,9 @@ type Fake struct {
 	Windows  []provider.Window
 	FetchErr error
 	Delay    time.Duration
+
+	mu      sync.Mutex
+	fetches int
 }
 
 // ID returns IDValue.
@@ -37,9 +41,22 @@ func (f *Fake) Detect(ctx context.Context) (bool, string) {
 	return f.DetectOK, f.DetectReason
 }
 
+// Fetches returns how many times Fetch has been called so far. It is safe
+// to call concurrently with Fetch. Callers (e.g. U11's orchestrator tests)
+// use it to assert Fetch was never called on an undetected provider.
+func (f *Fake) Fetches() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.fetches
+}
+
 // Fetch waits Delay (or until ctx is done, whichever is first), then
 // returns FetchErr if set, else Windows.
 func (f *Fake) Fetch(ctx context.Context) ([]provider.Window, error) {
+	f.mu.Lock()
+	f.fetches++
+	f.mu.Unlock()
+
 	if f.Delay > 0 {
 		timer := time.NewTimer(f.Delay)
 		defer timer.Stop()

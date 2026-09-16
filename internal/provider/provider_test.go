@@ -98,6 +98,44 @@ func TestErrors_WrapForErrorsIs(t *testing.T) {
 	})
 }
 
+func TestErrors_ValueNotPointer_AsContract(t *testing.T) {
+	t.Run("ErrTokenExpired", func(t *testing.T) {
+		wrapped := fmt.Errorf("reading credentials: %w", provider.ErrTokenExpired{Tool: "claude"})
+
+		var te provider.ErrTokenExpired
+		if !errors.As(wrapped, &te) {
+			t.Fatal("errors.As(wrapped, &te) = false, want true for a value-returned ErrTokenExpired")
+		}
+		if te.Tool != "claude" {
+			t.Errorf("te.Tool = %q, want %q", te.Tool, "claude")
+		}
+	})
+
+	t.Run("ErrNotLoggedIn", func(t *testing.T) {
+		wrapped := fmt.Errorf("reading credentials: %w", provider.ErrNotLoggedIn{Tool: "codex"})
+
+		var nl provider.ErrNotLoggedIn
+		if !errors.As(wrapped, &nl) {
+			t.Fatal("errors.As(wrapped, &nl) = false, want true for a value-returned ErrNotLoggedIn")
+		}
+		if nl.Tool != "codex" {
+			t.Errorf("nl.Tool = %q, want %q", nl.Tool, "codex")
+		}
+	})
+
+	t.Run("ErrRateLimited", func(t *testing.T) {
+		wrapped := fmt.Errorf("fetching usage: %w", provider.ErrRateLimited{RetryAfter: 90 * time.Second})
+
+		var rl provider.ErrRateLimited
+		if !errors.As(wrapped, &rl) {
+			t.Fatal("errors.As(wrapped, &rl) = false, want true for a value-returned ErrRateLimited")
+		}
+		if rl.RetryAfter != 90*time.Second {
+			t.Errorf("rl.RetryAfter = %v, want %v", rl.RetryAfter, 90*time.Second)
+		}
+	})
+}
+
 func TestWindowJSON_OmitsZeroResetsAt(t *testing.T) {
 	w := provider.Window{
 		Provider:    "claude",
@@ -265,6 +303,29 @@ func TestWindowJSON_ResetsAtIsRFC3339(t *testing.T) {
 	}
 	if got != resetsAt.Format(time.RFC3339) {
 		t.Errorf("resets_at = %q, want %q", got, resetsAt.Format(time.RFC3339))
+	}
+}
+
+func TestWindowJSON_ExactBytes(t *testing.T) {
+	windows := []provider.Window{{
+		Provider:    "claude",
+		Name:        "5h",
+		Plan:        "max",
+		UsedPercent: 42,
+		ResetsAt:    time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC),
+		Period:      5 * time.Hour,
+		RateLimited: true,
+	}}
+
+	b, err := json.Marshal(windows)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	got := string(b)
+	want := `[{"provider":"claude","name":"5h","plan":"max","used_percent":42,"resets_at":"2026-09-15T12:00:00Z","period_seconds":18000,"rate_limited":true}]`
+	if got != want {
+		t.Errorf("Marshal() = %s, want %s", got, want)
 	}
 }
 

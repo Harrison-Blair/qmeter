@@ -79,6 +79,10 @@ type Provider interface {
 // ErrNotLoggedIn indicates no usable credential was found — no env override
 // and no (or unparsable) vendor store. Tool is the CLI name used in the
 // "open <tool>" hint (one of: claude, codex, cursor-agent, opencode).
+//
+// Always return this by value (ErrNotLoggedIn{...}), never by pointer:
+// errors.As with a value target does not match a *ErrNotLoggedIn in the
+// chain.
 type ErrNotLoggedIn struct {
 	Tool string
 }
@@ -87,8 +91,10 @@ func (e ErrNotLoggedIn) Error() string {
 	return fmt.Sprintf("not logged in, run %s to log in", e.Tool)
 }
 
-// Is reports whether target is an ErrNotLoggedIn, regardless of Tool value,
-// so callers can test with errors.Is(err, provider.ErrNotLoggedIn{}).
+// Is compares by type only and ignores the fields entirely, in both
+// directions — always test with the zero value,
+// errors.Is(err, provider.ErrNotLoggedIn{}), and read the fields with
+// errors.As. A populated target matches too, so it is never a field check.
 func (e ErrNotLoggedIn) Is(target error) bool {
 	_, ok := target.(ErrNotLoggedIn)
 	return ok
@@ -97,6 +103,10 @@ func (e ErrNotLoggedIn) Is(target error) bool {
 // ErrTokenExpired indicates a credential was found but is expired or was
 // rejected by the vendor as unauthorized. Tool is the CLI name used in the
 // "open <tool>" hint (one of: claude, codex, cursor-agent, opencode).
+//
+// Always return this by value (ErrTokenExpired{...}), never by pointer:
+// errors.As with a value target does not match a *ErrTokenExpired in the
+// chain.
 type ErrTokenExpired struct {
 	Tool string
 }
@@ -105,8 +115,10 @@ func (e ErrTokenExpired) Error() string {
 	return fmt.Sprintf("token expired, open %s to refresh", e.Tool)
 }
 
-// Is reports whether target is an ErrTokenExpired, regardless of Tool
-// value, so callers can test with errors.Is(err, provider.ErrTokenExpired{}).
+// Is compares by type only and ignores the fields entirely, in both
+// directions — always test with the zero value,
+// errors.Is(err, provider.ErrTokenExpired{}), and read the fields with
+// errors.As. A populated target matches too, so it is never a field check.
 func (e ErrTokenExpired) Is(target error) bool {
 	_, ok := target.(ErrTokenExpired)
 	return ok
@@ -114,6 +126,10 @@ func (e ErrTokenExpired) Is(target error) bool {
 
 // ErrRateLimited indicates the vendor responded 429. RetryAfter is the
 // parsed retry-after duration (zero when the vendor did not supply one).
+//
+// Always return this by value (ErrRateLimited{...}), never by pointer:
+// errors.As with a value target does not match a *ErrRateLimited in the
+// chain.
 type ErrRateLimited struct {
 	RetryAfter time.Duration
 }
@@ -122,8 +138,10 @@ func (e ErrRateLimited) Error() string {
 	return fmt.Sprintf("rate limited, retry in %s", e.RetryAfter)
 }
 
-// Is reports whether target is an ErrRateLimited, regardless of RetryAfter
-// value, so callers can test with errors.Is(err, provider.ErrRateLimited{}).
+// Is compares by type only and ignores the fields entirely, in both
+// directions — always test with the zero value,
+// errors.Is(err, provider.ErrRateLimited{}), and read the fields with
+// errors.As. A populated target matches too, so it is never a field check.
 func (e ErrRateLimited) Is(target error) bool {
 	_, ok := target.(ErrRateLimited)
 	return ok
