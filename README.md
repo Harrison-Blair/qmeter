@@ -1,6 +1,31 @@
 # qmeter
 A CLI tool to see your AI subscription usage limits
 
+## Dashboard
+
+`qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and
+under it a fuel gauge for every usage window of every provider it detects — what
+is left of the window, and how long until it resets.
+
+| Key | Does |
+| --- | --- |
+| `j` / `↓`, `k` / `↑` | scroll a line |
+| `Space` / `PgDn`, `b` / `PgUp` | scroll a page |
+| `g` / `Home`, `G` / `End` | jump to the top or the bottom |
+| `r` | fetch every provider again |
+| `q`, `Esc`, `Ctrl-C` | quit |
+
+Two flags:
+
+- `--filter claude,codex` shows only the providers named — comma-separated or
+  repeated, out of `claude`, `codex`, `opencode-go` and `cursor`. Without it
+  every provider is shown.
+- `--no-banner` replaces the wordmark with the one-line summary header.
+
+The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
+table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
+both still honour `--filter`. Colour follows [`NO_COLOR`](https://no-color.org).
+
 ## Install
 
 Linux and macOS:
