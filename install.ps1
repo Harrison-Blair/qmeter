@@ -179,12 +179,32 @@ function Get-UserPath() {
     return $result
 }
 
+function Publish-EnvironmentChange() {
+    # Writing HKCU:\Environment changes the stored PATH but tells nobody.
+    # [Environment]::SetEnvironmentVariable broadcasts WM_SETTINGCHANGE for you;
+    # a plain registry write does not, so Explorer keeps its cached environment
+    # and a terminal opened from the Start menu would not see the new PATH.
+    # Best effort only: nothing here is worth failing an install over.
+    try {
+        if (-not ([System.Management.Automation.PSTypeName]'Win32.Native').Type) {
+            Add-Type -Namespace Win32 -Name Native -MemberDefinition '[DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+        }
+        # HWND_BROADCAST 0xffff, WM_SETTINGCHANGE 0x1A, SMTO_ABORTIFHUNG 2.
+        $result = [UIntPtr]::Zero
+        [void][Win32.Native]::SendMessageTimeout(
+            [IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+    } catch {
+        # An unbroadcast PATH still works in a new sign-in session.
+    }
+}
+
 function Set-UserPath([string]$Value, [string]$Kind) {
     try {
         Set-ItemProperty -Path 'HKCU:\Environment' -Name 'Path' -Value $Value -Type $Kind
     } catch {
         Die "could not add $InstallDir to your user PATH -- add it by hand"
     }
+    Publish-EnvironmentChange
 }
 
 function Get-Download([string]$Url, [string]$Dest) {
@@ -262,7 +282,7 @@ try {
         }
         Set-UserPath $newPath $userPath.Kind
         Say ''
-        Say "Added $InstallDir to your user PATH. Open a new terminal for it to take effect."
+        Say "Added $InstallDir to your user PATH. Open a new terminal for it to take effect (or sign out and back in if it is not picked up)."
         Say ''
     }
     # Make qmeter runnable in this session too, without duplicating an entry.
