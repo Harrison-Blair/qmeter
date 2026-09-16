@@ -14,7 +14,7 @@ func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
 		t.Error("root has no persistent --json flag")
 	}
 
-	for _, name := range []string{"usage", "version"} {
+	for _, name := range []string{"usage", "version", "update"} {
 		found := false
 		for _, sub := range root.Commands() {
 			if sub.Name() == name {
@@ -40,5 +40,34 @@ func TestExecuteWithArgs_Version(t *testing.T) {
 	want := "qmeter " + version.String() + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestRoot_CleansUpALeftoverWindowsBinaryOnEveryRun(t *testing.T) {
+	var calls int
+	saved := cleanupOld
+	t.Cleanup(func() { cleanupOld = saved })
+	cleanupOld = func() { calls++ }
+
+	var out bytes.Buffer
+	if err := ExecuteWithArgs([]string{"version"}, &out); err != nil {
+		t.Fatalf("ExecuteWithArgs: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("cleanupOld ran %d times, want 1", calls)
+	}
+}
+
+func TestRoot_CleanupCannotFailTheCommand(t *testing.T) {
+	saved := cleanupOld
+	t.Cleanup(func() { cleanupOld = saved })
+	cleanupOld = func() { panic("leftover cleanup blew up") }
+
+	var out bytes.Buffer
+	if err := ExecuteWithArgs([]string{"version"}, &out); err != nil {
+		t.Fatalf("a failing cleanup must not fail the command: %v", err)
+	}
+	if out.Len() == 0 {
+		t.Fatal("the command produced no output")
 	}
 }

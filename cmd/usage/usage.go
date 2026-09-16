@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	iupdate "github.com/Harrison-Blair/qmeter/internal/update"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
 
@@ -16,6 +17,11 @@ import (
 // variable so tests can substitute fakes instead of reaching for real
 // credential stores and the network.
 var registry = usage.Registry
+
+// hint is internal/update.Hint, indirected through a variable so the tests
+// in this package never reach the network and can assert the hint is left
+// out of machine-readable output.
+var hint = iupdate.Hint
 
 // validProviders is the registry's provider names, in registry order, for
 // the --provider help text and the unknown-provider error.
@@ -66,7 +72,14 @@ func New() *cobra.Command {
 			if asJSON {
 				return usage.RenderJSON(cmd.OutOrStdout(), res)
 			}
-			return usage.RenderText(cmd.OutOrStdout(), res)
+			if err := usage.RenderText(cmd.OutOrStdout(), res); err != nil {
+				return err
+			}
+			// A courtesy line on stderr, never in the JSON envelope and
+			// never on a run that was cut short. It cannot fail: Hint
+			// returns nothing and swallows every error of its own.
+			hint(ctx, cmd.ErrOrStderr(), iupdate.HintOptions{})
+			return nil
 		},
 	}
 
