@@ -48,6 +48,9 @@ subcommand gets its own folder under `cmd/<name>/` with at least one file that
 defines the cobra command and calls into `internal/`. `internal/` mirrors that:
 one folder per subcommand under `internal/<name>/`, plus folders for shared
 logic. Command files hold wiring only; logic and its tests live in `internal/`.
+The root command's own behaviour — the dashboard bare `qmeter` opens — follows
+the same rule: it is wired in `cmd/dash/` and implemented in `internal/dash/`,
+with the nested `banner`, `gauge` and `layout` packages drawing the page.
 
 ## Instructions
 
