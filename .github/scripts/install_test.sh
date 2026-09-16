@@ -114,30 +114,47 @@ aarch64 | arm64) host_arch=arm64 ;;
 	;;
 esac
 
-# make_release <tag> builds the release archive and checksums.txt a real tag
-# would have: a qmeter binary (here a script that echoes its version), LICENSE
-# and README.md, tarred as qmeter_<tag>_<os>_<arch>.tar.gz.
+# add_asset <tag> <os> <arch> builds one release archive the way
+# .github/workflows/release.yml does -- a qmeter binary (here a script that
+# echoes its version and target), LICENSE and README.md, tarred as
+# qmeter_<tag>_<os>_<arch>.tar.gz -- and appends its line to checksums.txt.
 serve_root="${work}/serve"
-make_release() {
-	local tag="$1"
-	local stage="${work}/stage-${tag}"
+add_asset() {
+	local tag="$1" os="$2" arch="$3"
+	local stage="${work}/stage-${tag}-${os}-${arch}"
 	local dest="${serve_root}/releases/download/${tag}"
-	local asset="qmeter_${tag}_${host_os}_${host_arch}.tar.gz"
+	local asset="qmeter_${tag}_${os}_${arch}.tar.gz"
 
 	mkdir -p "${stage}" "${dest}"
+	# The fake binary names its own target, so a test can tell which asset was
+	# installed and not merely that some asset was.
 	cat >"${stage}/qmeter" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = "version" ]; then
-	echo "qmeter ${tag}"
+	echo "qmeter ${tag} ${os}_${arch}"
 	exit 0
 fi
-echo "fake qmeter ${tag}: \$*"
+echo "fake qmeter ${tag} ${os}_${arch}: \$*"
 EOF
 	chmod +x "${stage}/qmeter"
 	printf 'fake license\n' >"${stage}/LICENSE"
 	printf 'fake readme\n' >"${stage}/README.md"
 	tar -czf "${dest}/${asset}" -C "${stage}" qmeter LICENSE README.md
-	(cd "${dest}" && printf '%s  %s\n' "$(sha256_of "${asset}")" "${asset}" >checksums.txt)
+	# checksums.txt is one `sha256sum qmeter_*` run over every asset.
+	(cd "${dest}" && printf '%s  %s\n' "$(sha256_of "${asset}")" "${asset}" >>checksums.txt)
+}
+
+# make_release <tag> publishes the assets a real tag would have: the host's, so
+# an unshimmed run finds one, and linux/arm64, so the uname-shimmed arm64 cases
+# have something to install.
+make_release() {
+	local tag="$1"
+	mkdir -p "${serve_root}/releases/download/${tag}"
+	: >"${serve_root}/releases/download/${tag}/checksums.txt"
+	add_asset "${tag}" "${host_os}" "${host_arch}"
+	if [ "${host_os}/${host_arch}" != "linux/arm64" ]; then
+		add_asset "${tag}" linux arm64
+	fi
 }
 
 make_release v0.1.0
@@ -183,6 +200,21 @@ new_home() {
 	printf '%s' "${home}"
 }
 
+# shim_uname <sysname> <machine> puts a uname on PATH that reports the given
+# platform, so the detection arms can be exercised off a single host.
+shim="${work}/shim"
+mkdir -p "${shim}"
+shim_uname() {
+	cat >"${shim}/uname" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in
+-m) echo "$2" ;;
+*) echo "$1" ;;
+esac
+EOF
+	chmod +x "${shim}/uname"
+}
+
 ###############################################################################
 
 start "syntax"
@@ -198,7 +230,7 @@ out="$(env HOME="${home}" QMETER_BASE_URL="${base_url}" bash "${installer}" 2>&1
 status=$?
 assert_status 0 "${status}" "installer"
 assert_file "${home}/.local/bin/qmeter" "installs into ~/.local/bin"
-assert_contains "${out}" "qmeter v0.1.0" "prints the installed version"
+assert_contains "${out}" "qmeter v0.1.0 ${host_os}_${host_arch}" "prints the installed version, from the host's own asset"
 assert_contains "${out}" "v0.1.0" "resolved the latest tag"
 
 ###############################################################################
@@ -262,17 +294,32 @@ assert_absent "${home6}/.local/bin/qmeter" "installs nothing"
 
 ###############################################################################
 
+# `uname -m` says aarch64 on 64-bit ARM Linux and arm64 on Apple silicon; both
+# have to reach the arm64 asset. The test host is x86_64, so without these the
+# whole arm64 arm of the case statement is unexercised.
+start "aarch64 maps to the arm64 asset"
+shim_uname Linux aarch64
+home_a64="$(new_home)"
+out_a64="$(env HOME="${home_a64}" QMETER_BASE_URL="${base_url}" PATH="${shim}:${PATH}" \
+	bash "${installer}" 2>&1)"
+assert_status 0 "$?" "installer"
+assert_file "${home_a64}/.local/bin/qmeter" "installs on aarch64"
+assert_contains "${out_a64}" "qmeter v0.1.0 linux_arm64" "installed the arm64 asset"
+assert_missing "${out_a64}" "_amd64" "did not fall back to the amd64 asset"
+
+start "arm64 maps to the arm64 asset"
+shim_uname Linux arm64
+home_m1="$(new_home)"
+out_m1="$(env HOME="${home_m1}" QMETER_BASE_URL="${base_url}" PATH="${shim}:${PATH}" \
+	bash "${installer}" 2>&1)"
+assert_status 0 "$?" "installer"
+assert_contains "${out_m1}" "qmeter v0.1.0 linux_arm64" "installed the arm64 asset"
+assert_missing "${out_m1}" "_amd64" "did not fall back to the amd64 asset"
+
+###############################################################################
+
 start "unsupported architecture"
-shim="${work}/shim"
-mkdir -p "${shim}"
-cat >"${shim}/uname" <<'EOF'
-#!/usr/bin/env bash
-case "${1:-}" in
--m) echo ppc64le ;;
-*) echo Linux ;;
-esac
-EOF
-chmod +x "${shim}/uname"
+shim_uname Linux ppc64le
 home7="$(new_home)"
 out7="$(env HOME="${home7}" QMETER_BASE_URL="${base_url}" PATH="${shim}:${PATH}" \
 	bash "${installer}" 2>&1)"
@@ -286,13 +333,7 @@ assert_contains "${out7}" "ppc64le" "names the unsupported architecture"
 assert_absent "${home7}/.local/bin/qmeter" "installs nothing"
 
 start "unsupported operating system"
-cat >"${shim}/uname" <<'EOF'
-#!/usr/bin/env bash
-case "${1:-}" in
--m) echo x86_64 ;;
-*) echo Plan9 ;;
-esac
-EOF
+shim_uname Plan9 x86_64
 home8="$(new_home)"
 out8="$(env HOME="${home8}" QMETER_BASE_URL="${base_url}" PATH="${shim}:${PATH}" \
 	bash "${installer}" 2>&1)"

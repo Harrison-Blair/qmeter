@@ -127,7 +127,15 @@ asset_url="${base_url}/releases/download/${version}/${asset}"
 checksums_url="${base_url}/releases/download/${version}/checksums.txt"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/qmeter-install.XXXXXX")"
-trap 'rm -rf "${tmp}"' EXIT
+# staged is set once there is a half-installed file to clean up as well.
+staged=""
+cleanup() {
+	rm -rf "${tmp}"
+	if [ -n "${staged}" ]; then
+		rm -f "${staged}"
+	fi
+}
+trap cleanup EXIT
 
 fetch() { # fetch <url> <dest>
 	curl -fsSL --retry 2 -o "$2" "$1" ||
@@ -154,11 +162,20 @@ mkdir -p "${install_dir}" 2>/dev/null ||
 [ -w "${install_dir}" ] ||
 	die "${install_dir} is not writable -- set QMETER_INSTALL_DIR to a directory you own (this script never uses sudo)"
 
-# Write beside the target and rename, so a running qmeter is replaced whole.
+# Write beside the target and rename, so a running qmeter is replaced whole and
+# is never briefly present with the wrong mode.
 staged="${install_dir}/.qmeter.install.$$"
-cp "${tmp}/qmeter" "${staged}"
-chmod 0755 "${staged}"
-mv -f "${staged}" "${install_dir}/qmeter"
+if command -v install >/dev/null 2>&1; then
+	install -m 0755 "${tmp}/qmeter" "${staged}" ||
+		die "could not write ${staged}"
+else
+	chmod 0755 "${tmp}/qmeter"
+	cp -p "${tmp}/qmeter" "${staged}" ||
+		die "could not write ${staged}"
+fi
+mv -f "${staged}" "${install_dir}/qmeter" ||
+	die "could not move ${staged} into place"
+staged=""
 
 say "Installed ${install_dir}/qmeter"
 
