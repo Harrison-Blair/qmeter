@@ -3,6 +3,7 @@ package httpx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -354,5 +355,50 @@ func TestPost_401MapsToTokenExpired(t *testing.T) {
 	}
 	if te.Tool != "codex" {
 		t.Errorf("Tool = %q, want %q", te.Tool, "codex")
+	}
+}
+
+func TestGet_2xxOtherThan200IsSuccess(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusCreated, http.StatusAccepted, http.StatusNoContent} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Parallel()
+
+			srv := statusServer(t, status, nil, "")
+
+			if err := Get(context.Background(), Options{URL: srv.URL, Tool: "claude"}, nil); err != nil {
+				t.Fatalf("Get on %d returned error %v, want nil — every 2xx is a success", status, err)
+			}
+		})
+	}
+}
+
+func TestGet_EmptyBodyWithTargetReportsEmptyResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{name: "204 no content", status: http.StatusNoContent},
+		{name: "200 with no bytes", status: http.StatusOK},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := statusServer(t, tc.status, nil, "")
+
+			var got usageBody
+			err := Get(context.Background(), Options{URL: srv.URL, Tool: "claude"}, &got)
+			if err == nil {
+				t.Fatal("Get returned nil error for an empty body with a non-nil target")
+			}
+			want := fmt.Sprintf("httpx: GET %s: empty response body (status %d)", srv.URL, tc.status)
+			if err.Error() != want {
+				t.Errorf("err = %q, want %q", err.Error(), want)
+			}
+		})
 	}
 }
