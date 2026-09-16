@@ -21,8 +21,12 @@ if ! head_commit=$(git rev-parse --verify --quiet "${ref}^{commit}"); then
 	exit 1
 fi
 
-# Version-aware sort, so v0.10.0 outranks v0.9.0.
-latest=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+# Version-aware sort, so v0.10.0 outranks v0.9.0. This uses for-each-ref rather
+# than piping `git tag` into `head`, because that pipeline dies with SIGPIPE once
+# the tag list outgrows the pipe buffer -- which `set -o pipefail` turns into a
+# silent exit 141 a few hundred releases in.
+latest=$(git for-each-ref --count=1 --sort=-v:refname \
+	--format='%(refname:strip=2)' 'refs/tags/v*')
 
 if [ -z "$latest" ]; then
 	printf 'v0.1.0\n'
