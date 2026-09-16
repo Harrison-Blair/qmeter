@@ -3,14 +3,14 @@
     {
       "group": "zulu-model",
       "percent": 80,
-      "resets_at": "2026-09-19T00:00:00Z"
+      "resets_at": "2026-09-19T00:00:04Z"
     }
   ],
   "mm_limits": [
     {
       "group": "mike-model",
       "percent": 60,
-      "resets_at": "2026-09-19T00:00:00Z"
+      "resets_at": "2026-09-19T00:00:03Z"
     }
   ],
   "five_hour": {
@@ -21,14 +21,14 @@
     {
       "group": "bravo-model",
       "percent": 40,
-      "resets_at": "2026-09-19T00:00:00Z"
+      "resets_at": "2026-09-19T00:00:02Z"
     }
   ],
   "aa_limits": [
     {
       "group": "alpha-model",
       "percent": 20,
-      "resets_at": "2026-09-19T00:00:00Z"
+      "resets_at": "2026-09-19T00:00:01Z"
     }
   ]
 }

@@ -12,7 +12,7 @@
     {
       "group": "claude-haiku-4-5",
       "percent": 3.5,
-      "resets_at": 1789776000
+      "resets_at": 1789776060
     },
     {
       "percent": 90,
@@ -26,7 +26,7 @@
     {
       "group": "5h",
       "percent": 99,
-      "resets_at": "2026-09-19T00:00:00Z"
+      "resets_at": "2026-09-16T18:30:00Z"
     }
   ],
   "unknown_section": {

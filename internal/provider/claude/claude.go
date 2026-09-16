@@ -218,20 +218,117 @@ type windowPayload struct {
 	ResetsAt    timestamp `json:"resets_at"`
 }
 
-// scopedLimit is one entry of the scoped per-model limit list newer responses
-// may carry: {percent, resets_at, group}. The window is named after group;
-// its period is unknown, so it stays zero.
+// scopedLimit is one entry of the limits list the live response carries:
+// {group, kind, scoped, percent, resets_at, scope}. Some entries restate a
+// documented window (a "session" entry repeating five_hour, a "weekly_all"
+// entry repeating seven_day, each with that window's exact reset instant);
+// others are genuinely distinct per-model limits that merely share a group
+// name with one, which is why neither group nor kind can be the identity.
 type scopedLimit struct {
 	Percent  *float64  `json:"percent"`
 	ResetsAt timestamp `json:"resets_at"`
 	Group    string    `json:"group"`
+	Kind     string    `json:"kind"`
+	Scope    *struct {
+		Model struct {
+			DisplayName string `json:"display_name"`
+		} `json:"model"`
+	} `json:"scope"`
+}
+
+// name is what the window is called. A scoped entry is named after its model
+// — "<display name> weekly" for a weekly kind, matching the "sonnet weekly" /
+// "opus weekly" convention the documented windows already use, and
+// "<display name> <kind>" otherwise. An entry with no scope is named after
+// its kind, falling back to its group. Display names are lowercased so the
+// column reads consistently whatever casing the vendor sends.
+func (l scopedLimit) name() string {
+	kind := strings.TrimSpace(l.Kind)
+	if l.Scope != nil {
+		if display := strings.ToLower(strings.TrimSpace(l.Scope.Model.DisplayName)); display != "" {
+			switch {
+			case strings.Contains(strings.ToLower(kind), "weekly"):
+				return display + " weekly"
+			case kind != "":
+				return display + " " + kind
+			default:
+				return display
+			}
+		}
+	}
+	if kind != "" {
+		return kind
+	}
+	return strings.TrimSpace(l.Group)
+}
+
+// period is how long the limit's window runs. Only the vendor's own kinds say
+// this; anything else leaves the period unknown, which renders as no period
+// at all rather than a guess.
+func (l scopedLimit) period() time.Duration {
+	switch kind := strings.ToLower(l.Kind); {
+	case strings.Contains(kind, "weekly"):
+		return 7 * 24 * time.Hour
+	case strings.Contains(kind, "session"):
+		return 5 * time.Hour
+	default:
+		return 0
+	}
+}
+
+// emitted remembers what has already been reported. Reset instants are the
+// identity: the live response restates a documented window inside the limits
+// list with that window's exact reset instant, down to the microsecond, while
+// a genuinely distinct per-model limit differs there even when it shares a
+// group name. Names are tracked only to keep the output readable.
+type emitted struct {
+	instants map[string]bool
+	names    map[string]bool
+}
+
+func newEmitted() *emitted {
+	return &emitted{instants: map[string]bool{}, names: map[string]bool{}}
+}
+
+// instantKey identifies a reset instant exactly. It is a formatted string
+// rather than UnixNano so an absurd year from a malformed response cannot
+// overflow into a collision.
+func instantKey(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+
+// seenInstant reports whether a window resetting at exactly t was already
+// emitted. A zero time is no instant at all and never matches.
+func (e *emitted) seenInstant(t time.Time) bool {
+	return !t.IsZero() && e.instants[instantKey(t)]
+}
+
+// uniqueName returns name, or name with a " (2)", " (3)"… suffix when that
+// name is taken, so two limits that are genuinely different — different reset
+// instants — never collapse into one row just because they describe the same
+// model.
+func (e *emitted) uniqueName(name string) string {
+	if !e.names[name] {
+		return name
+	}
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s (%d)", name, n)
+		if !e.names[candidate] {
+			return candidate
+		}
+	}
+}
+
+func (e *emitted) record(w provider.Window) {
+	e.names[w.Name] = true
+	if !w.ResetsAt.IsZero() {
+		e.instants[instantKey(w.ResetsAt)] = true
+	}
 }
 
 // windowsFrom normalizes a decoded response. plan is the credential's plan
 // name, which every window repeats.
 func windowsFrom(body map[string]json.RawMessage, plan string) []provider.Window {
 	var out []provider.Window
-	seen := make(map[string]bool, len(knownWindows))
+	seen := newEmitted()
 
 	for _, kw := range knownWindows {
 		raw, ok := body[kw.key]
@@ -242,15 +339,16 @@ func windowsFrom(body map[string]json.RawMessage, plan string) []provider.Window
 		if err := json.Unmarshal(raw, &payload); err != nil || payload.Utilization == nil {
 			continue // a window qmeter cannot read is skipped, not fatal
 		}
-		out = append(out, provider.Window{
+		window := provider.Window{
 			Provider:    providerID,
 			Name:        kw.name,
 			Plan:        plan,
 			UsedPercent: *payload.Utilization,
 			ResetsAt:    payload.ResetsAt.Time,
 			Period:      kw.period,
-		})
-		seen[kw.name] = true
+		}
+		out = append(out, window)
+		seen.record(window)
 	}
 	return append(out, scopedWindows(body, plan, seen)...)
 }
@@ -260,7 +358,7 @@ func windowsFrom(body map[string]json.RawMessage, plan string) []provider.Window
 // window is tried as a list of scoped limits and skipped when it is not one.
 // Keys are visited in sorted order so the window order is deterministic
 // whatever order the JSON object came in.
-func scopedWindows(body map[string]json.RawMessage, plan string, seen map[string]bool) []provider.Window {
+func scopedWindows(body map[string]json.RawMessage, plan string, seen *emitted) []provider.Window {
 	keys := make([]string, 0, len(body))
 	for key := range body {
 		if !isKnownWindowKey(key) {
@@ -280,24 +378,35 @@ func scopedWindows(body map[string]json.RawMessage, plan string, seen map[string
 			if err := json.Unmarshal(entry, &limit); err != nil {
 				continue
 			}
-			name := strings.TrimSpace(limit.Group)
-			// All three fields are required, which is also what tells a real
-			// scoped limit apart from some other list that happens to carry a
-			// group and a percent: a notice like
-			// {"group":"billing","percent":100} has no reset time and must
-			// not render as a window sitting at 100% used. An entry repeating
-			// a window already reported would double it.
-			if name == "" || limit.Percent == nil || limit.ResetsAt.IsZero() || seen[name] {
+			// All three of group, percent and a parseable resets_at are
+			// required, which is also what tells a real limit apart from some
+			// other list that happens to carry a group and a percent: a
+			// notice like {"group":"billing","percent":100} has no reset time
+			// and must not render as a window sitting at 100% used.
+			if strings.TrimSpace(limit.Group) == "" || limit.Percent == nil || limit.ResetsAt.IsZero() {
 				continue
 			}
-			out = append(out, provider.Window{
+			// The reset instant is the limit's identity. An entry resetting
+			// at exactly the same instant as a window already reported is
+			// that window restated — the live "session" and "weekly_all"
+			// entries — and would otherwise render as a duplicate row.
+			if seen.seenInstant(limit.ResetsAt.Time) {
+				continue
+			}
+			name := limit.name()
+			if name == "" {
+				continue
+			}
+			window := provider.Window{
 				Provider:    providerID,
-				Name:        name,
+				Name:        seen.uniqueName(name),
 				Plan:        plan,
 				UsedPercent: *limit.Percent,
 				ResetsAt:    limit.ResetsAt.Time,
-			})
-			seen[name] = true
+				Period:      limit.period(),
+			}
+			out = append(out, window)
+			seen.record(window)
 		}
 	}
 	return out

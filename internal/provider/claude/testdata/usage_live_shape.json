@@ -1,0 +1,66 @@
+{
+  "five_hour": {
+    "utilization": 41,
+    "resets_at": "2026-09-16T15:30:00.947517+00:00"
+  },
+  "seven_day": {
+    "utilization": 22,
+    "resets_at": "2026-09-21T10:00:00.947543+00:00"
+  },
+  "seven_day_sonnet": {
+    "utilization": 9,
+    "resets_at": "2026-09-21T10:00:00.947543+00:00"
+  },
+  "seven_day_opus": {
+    "utilization": 3,
+    "resets_at": "2026-09-21T10:00:00.947543+00:00"
+  },
+  "seven_day_breakdown": {
+    "rows": [
+      {
+        "display_name": "Sonnet 4.5",
+        "key": "sonnet",
+        "percent": 9
+      },
+      {
+        "display_name": "Opus 4.6",
+        "key": "opus",
+        "percent": 3
+      }
+    ]
+  },
+  "five_hour_breakdown": null,
+  "monthly": null,
+  "extra_section": {
+    "utilization": 0
+  },
+  "limits": [
+    {
+      "group": "session",
+      "kind": "session",
+      "scoped": false,
+      "percent": 41,
+      "resets_at": "2026-09-16T15:30:00.947517+00:00"
+    },
+    {
+      "group": "weekly",
+      "kind": "weekly_all",
+      "scoped": false,
+      "percent": 22,
+      "resets_at": "2026-09-21T10:00:00.947543+00:00"
+    },
+    {
+      "group": "weekly",
+      "kind": "weekly_scoped",
+      "scoped": true,
+      "percent": 3,
+      "resets_at": "2026-09-21T10:00:00.947816+00:00",
+      "scope": {
+        "model": {
+          "display_name": "Claude Opus 4.6",
+          "id": "claude-opus-4-6"
+        }
+      }
+    }
+  ]
+}
