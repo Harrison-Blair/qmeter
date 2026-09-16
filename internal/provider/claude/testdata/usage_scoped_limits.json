@@ -1,0 +1,35 @@
+{
+  "five_hour": {
+    "utilization": 12,
+    "resets_at": "2026-09-16T18:30:00Z"
+  },
+  "scoped_limits": [
+    {
+      "group": "claude-opus-4-6",
+      "percent": 55,
+      "resets_at": "2026-09-19T00:00:00Z"
+    },
+    {
+      "group": "claude-haiku-4-5",
+      "percent": 3.5,
+      "resets_at": 1789776000
+    },
+    {
+      "percent": 90,
+      "resets_at": "2026-09-19T00:00:00Z"
+    },
+    {
+      "group": "no-percent-at-all",
+      "resets_at": "2026-09-19T00:00:00Z"
+    },
+    "a string where an object was expected",
+    {
+      "group": "5h",
+      "percent": 99,
+      "resets_at": "2026-09-19T00:00:00Z"
+    }
+  ],
+  "unknown_section": {
+    "not": "a list of scoped limits"
+  }
+}
