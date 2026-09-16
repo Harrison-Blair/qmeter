@@ -267,7 +267,7 @@ func TestHint_CancelledContextIsSilent(t *testing.T) {
 	}
 }
 
-func TestHint_UnwritableCacheStillPrints(t *testing.T) {
+func TestHint_UnwritableCacheIsSilent(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can write into a mode 0500 directory")
 	}
@@ -283,8 +283,14 @@ func TestHint_UnwritableCacheStillPrints(t *testing.T) {
 	var w bytes.Buffer
 	Hint(context.Background(), &w, opts)
 
-	if !strings.Contains(w.String(), "v0.3.0") {
-		t.Fatalf("hint = %q, want the line even when the cache cannot be written", w.String())
+	// A cache that cannot be recorded would mean a network check on every
+	// single run, which breaks the once-a-day rule; so it behaves like
+	// having no cache directory at all: no check, no line.
+	if calls != 0 {
+		t.Fatalf("an unwritable cache made %d network calls, want 0", calls)
+	}
+	if w.Len() != 0 {
+		t.Fatalf("hint = %q, want nothing when the check cannot be recorded", w.String())
 	}
 }
 

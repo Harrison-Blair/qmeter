@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -184,5 +185,56 @@ func TestParseChecksums(t *testing.T) {
 	}
 	if len(sums) != len(want) {
 		t.Errorf("parseChecksums() has %d entries, want %d: %v", len(sums), len(want), sums)
+	}
+}
+
+func TestFetch_RejectsABodyOverTheLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("A", 4096)))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := Source{BaseURL: srv.URL}
+	_, err := src.fetch(context.Background(), srv.URL, 100)
+	if err == nil {
+		t.Fatal("a body over the limit must be an error, not a silent truncation")
+	}
+	if !strings.Contains(err.Error(), "larger than the 100 byte limit") {
+		t.Fatalf("err = %q, want it to name the limit", err)
+	}
+}
+
+func TestFetch_AcceptsABodyExactlyAtTheLimit(t *testing.T) {
+	body := strings.Repeat("A", 100)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := Source{BaseURL: srv.URL}
+	got, err := src.fetch(context.Background(), srv.URL, 100)
+	if err != nil {
+		t.Fatalf("a body exactly at the limit must be accepted: %v", err)
+	}
+	if string(got) != body {
+		t.Fatalf("fetch returned %d bytes, want %d", len(got), len(body))
+	}
+}
+
+func TestBinary_OversizedChecksumsFileIsRejected(t *testing.T) {
+	// The real constant, not an injected one: an endless checksums.txt
+	// must not be read into memory.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("A"), int(maxChecksumsBytes)+1))
+	}))
+	t.Cleanup(srv.Close)
+
+	src := Source{BaseURL: srv.URL}
+	_, err := src.Binary(context.Background(), "v1.2.3", "linux", "amd64")
+	if err == nil {
+		t.Fatal("an oversized checksums.txt must be an error")
+	}
+	if !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("err = %q, want it to name the limit", err)
 	}
 }

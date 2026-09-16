@@ -424,3 +424,26 @@ func TestConfirm(t *testing.T) {
 		}
 	}
 }
+
+func TestRun_CheckWinsOverYes(t *testing.T) {
+	// --check is a question, --yes is an answer to a question that is
+	// never asked. Together they must still report and stop: --yes must
+	// not turn a check into an unattended install.
+	var downloads int
+	srv := fullServer(t, "v0.2.0", "new binary", &downloads)
+	opts, out, _, execPath := testOptions(t, srv, "v0.1.0")
+	opts.Check, opts.Yes = true, true
+
+	if err := Run(context.Background(), *opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if downloads != 0 {
+		t.Fatalf("--check --yes downloaded the asset %d times, want 0", downloads)
+	}
+	if b, _ := os.ReadFile(execPath); string(b) != "old binary" {
+		t.Fatalf("--check --yes replaced the binary: %q", b)
+	}
+	if !strings.Contains(out.String(), "is available") {
+		t.Fatalf("stdout = %q, want the check report", out.String())
+	}
+}

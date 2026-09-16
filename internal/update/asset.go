@@ -53,14 +53,15 @@ func extractBinary(asset []byte, assetName, binName string, limit int64) ([]byte
 	return extractFromTarGz(asset, binName, limit)
 }
 
-// safeEntry reports whether an archive entry name stays inside the archive
-// root: no absolute path, no "..", no drive-ish or backslash trickery.
-func safeEntry(name string) error {
+// safeEntry checks that an archive entry name stays inside the archive
+// root — no absolute path, no "..", no backslash trickery — and returns the
+// cleaned name to match against.
+func safeEntry(name string) (string, error) {
 	clean := path.Clean(strings.ReplaceAll(name, `\`, "/"))
 	if path.IsAbs(clean) || strings.HasPrefix(clean, "../") || clean == ".." {
-		return fmt.Errorf("update: archive entry %q has an unsafe path", name)
+		return "", fmt.Errorf("update: archive entry %q has an unsafe path", name)
 	}
-	return nil
+	return clean, nil
 }
 
 func extractFromTarGz(asset []byte, binName string, limit int64) ([]byte, error) {
@@ -79,10 +80,14 @@ func extractFromTarGz(asset []byte, binName string, limit int64) ([]byte, error)
 		if err != nil {
 			return nil, fmt.Errorf("update: read release archive: %w", err)
 		}
-		if err := safeEntry(hdr.Name); err != nil {
+		name, err := safeEntry(hdr.Name)
+		if err != nil {
 			return nil, err
 		}
-		if path.Base(hdr.Name) != binName || hdr.Typeflag != tar.TypeReg {
+		// The release archives are flat, so only a top-level regular
+		// file is the binary; a nested or non-regular entry of the same
+		// name is something else pretending.
+		if name != binName || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		if hdr.Size > limit {
@@ -99,13 +104,16 @@ func extractFromZip(asset []byte, binName string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("update: read release archive: %w", err)
 	}
-	for _, f := range zr.File {
-		if err := safeEntry(f.Name); err != nil {
+	names := make([]string, len(zr.File))
+	for i, f := range zr.File {
+		name, err := safeEntry(f.Name)
+		if err != nil {
 			return nil, err
 		}
+		names[i] = name
 	}
-	for _, f := range zr.File {
-		if path.Base(f.Name) != binName || f.FileInfo().IsDir() {
+	for i, f := range zr.File {
+		if names[i] != binName || !f.Mode().IsRegular() {
 			continue
 		}
 		if f.UncompressedSize64 > uint64(limit) {

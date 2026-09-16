@@ -110,14 +110,23 @@ func Hint(ctx context.Context, w io.Writer, opts HintOptions) {
 	case err == nil && now().Sub(state.CheckedAt) < hintTTL:
 		latest = state.Latest
 	default:
+		// Claim the day before spending it. A check that cannot be
+		// recorded would repeat on every single run, so an unwritable
+		// cache means no check at all, exactly like having nowhere to
+		// put one. Writing first also means a crash mid-check still
+		// costs only one day, and a failed lookup — a broken network, an
+		// unreleased repo — backs off on the empty latest already
+		// written here.
+		if err := writeHintState(path, hintState{CheckedAt: now()}); err != nil {
+			return
+		}
 		checkCtx, cancel := context.WithTimeout(ctx, hintTimeout)
 		defer cancel()
 		src := Source{BaseURL: opts.BaseURL, Client: opts.Client}
-		// A failed lookup is still recorded, with an empty latest, so a
-		// broken network or an unreleased repo backs off for a day
-		// instead of costing every run the timeout.
 		latest, _ = src.LatestTag(checkCtx)
-		writeHintState(path, hintState{CheckedAt: now(), Latest: latest})
+		if latest != "" {
+			_ = writeHintState(path, hintState{CheckedAt: now(), Latest: latest})
+		}
 	}
 
 	if latest == "" {
@@ -150,15 +159,15 @@ func readHintState(path string) (hintState, error) {
 	return s, nil
 }
 
-// writeHintState records a check. Failures are ignored: an unwritable cache
-// costs a request per run, which is still better than a visible error.
-func writeHintState(path string, s hintState) {
+// writeHintState records a check. Its error is for Hint to decide on, not
+// to report: nothing here ever reaches the user.
+func writeHintState(path string, s hintState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
+		return err
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
-		return
+		return err
 	}
-	_ = os.WriteFile(path, b, 0o600)
+	return os.WriteFile(path, b, 0o600)
 }
