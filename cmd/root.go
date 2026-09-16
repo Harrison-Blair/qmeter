@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/Harrison-Blair/qmeter/cmd/usage"
 	"github.com/Harrison-Blair/qmeter/cmd/version"
 )
 
@@ -15,6 +16,11 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 
+	// --json is persistent so every subcommand that has a machine-readable
+	// form reads the same flag; cmd/usage is the first.
+	root.PersistentFlags().Bool("json", false, "output JSON instead of text")
+
+	root.AddCommand(usage.New())
 	root.AddCommand(version.New())
 
 	return root
