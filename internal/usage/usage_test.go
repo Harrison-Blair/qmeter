@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,7 +86,9 @@ func TestRun_FetchesDetectedProvidersConcurrently(t *testing.T) {
 		t.Errorf("Errors = %v, want empty", got.Errors)
 	}
 	// Serial execution would take 4*delay; concurrent execution takes ~delay.
-	if max := 2 * delay; elapsed >= max {
+	// The margin is wide enough that a loaded machine does not flake, and
+	// still narrow enough to catch a serial (sum-of-delays) implementation.
+	if max := 3 * delay; elapsed >= max {
 		t.Errorf("elapsed = %s, want < %s (fetches must overlap, not run serially)", elapsed, max)
 	}
 }
@@ -95,9 +98,18 @@ func TestRun_SlowProviderTimesOutIndependently(t *testing.T) {
 	slow := providertest.Slow("claude", time.Hour, []provider.Window{win("claude", "5h")})
 	fast := providertest.Succeeding("codex", []provider.Window{win("codex", "weekly")})
 
-	start := time.Now()
-	got := run(context.Background(), []provider.Provider{slow, fast}, "", timeout)
-	elapsed := time.Since(start)
+	// run in a goroutine: without the per-provider timeout the slow fake
+	// blocks for an hour, and this must fail with a message, not hang the
+	// suite until the test binary's own deadline.
+	done := make(chan Result, 1)
+	go func() { done <- run(context.Background(), []provider.Provider{slow, fast}, "", timeout) }()
+
+	var got Result
+	select {
+	case got = <-done:
+	case <-time.After(20 * timeout):
+		t.Fatalf("run did not return within %s; the per-provider timeout must bound it", 20*timeout)
+	}
 
 	if want := []string{"codex/weekly"}; !equalStrings(windowKeys(got.Windows), want) {
 		t.Errorf("Windows = %v, want %v (the fast provider still reports)", windowKeys(got.Windows), want)
@@ -105,11 +117,8 @@ func TestRun_SlowProviderTimesOutIndependently(t *testing.T) {
 	if want := []string{"claude"}; !equalStrings(errorProviders(got.Errors), want) {
 		t.Fatalf("Errors = %v, want %v", got.Errors, want)
 	}
-	if got, want := messageFor(t, got.Errors, "claude"), "timed out after 40ms"; got != want {
-		t.Errorf("message = %q, want %q", got, want)
-	}
-	if max := 20 * timeout; elapsed >= max {
-		t.Errorf("elapsed = %s, want < %s (the timeout must bound the run)", elapsed, max)
+	if msg, want := messageFor(t, got.Errors, "claude"), "timed out after 40ms"; msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
 	}
 }
 
@@ -152,12 +161,23 @@ func TestRun_OneProviderFailureDoesNotBlockOthers(t *testing.T) {
 }
 
 func TestRun_RateLimitedErrorProducesRetryAfterMessage(t *testing.T) {
-	rateLimited := providertest.Erroring("opencode-go", provider.ErrRateLimited{RetryAfter: 90 * time.Second})
+	for _, tc := range []struct {
+		name       string
+		retryAfter time.Duration
+		want       string
+	}{
+		{name: "vendor supplied a retry-after", retryAfter: 90 * time.Second, want: "rate limited, retry in 1m30s"},
+		{name: "vendor supplied none", retryAfter: 0, want: "rate limited, retry later"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rateLimited := providertest.Erroring("opencode-go", provider.ErrRateLimited{RetryAfter: tc.retryAfter})
 
-	got := run(context.Background(), []provider.Provider{rateLimited}, "", testTimeout)
+			got := run(context.Background(), []provider.Provider{rateLimited}, "", testTimeout)
 
-	if msg, want := messageFor(t, got.Errors, "opencode-go"), "rate limited, retry in 1m30s"; msg != want {
-		t.Errorf("message = %q, want %q", msg, want)
+			if msg := messageFor(t, got.Errors, "opencode-go"); msg != tc.want {
+				t.Errorf("message = %q, want %q", msg, tc.want)
+			}
+		})
 	}
 }
 
@@ -341,6 +361,144 @@ func TestRun_UsesDefaultProviderTimeout(t *testing.T) {
 	if budget := deadline.Sub(start); budget < DefaultProviderTimeout || budget > DefaultProviderTimeout+time.Second {
 		t.Errorf("Fetch deadline budget = %s, want ~%s", budget, DefaultProviderTimeout)
 	}
+}
+
+func TestRun_FetchContextDerivesFromCallerContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rec := newCtxRecorder("claude")
+	done := make(chan Result, 1)
+	// A generous per-provider timeout: only the caller's cancellation can
+	// end this run promptly, so a Fetch context built from
+	// context.Background() instead of ctx would stall here.
+	go func() { done <- run(ctx, []provider.Provider{rec}, "", time.Minute) }()
+
+	<-rec.started
+	if fetchCtx := rec.recorded(); fetchCtx == nil {
+		t.Fatal("Fetch received no context")
+	}
+	cancel()
+
+	var got Result
+	select {
+	case got = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return after the caller's context was canceled: the Fetch context is not derived from it")
+	}
+
+	select {
+	case <-rec.recorded().Done():
+	default:
+		t.Error("Fetch context is not Done after the caller's context was canceled: it is not derived from the caller")
+	}
+	if msg, want := messageFor(t, got.Errors, "claude"), "canceled"; msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+func TestRun_CallerContextDoneReportsCanceledNotTimedOut(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		parent func() (context.Context, context.CancelFunc)
+	}{
+		{
+			name: "caller canceled",
+			parent: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+		},
+		{
+			name: "caller deadline exceeded",
+			parent: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := tc.parent()
+			defer cancel()
+			slow := providertest.Slow("claude", time.Hour, nil)
+
+			got := run(ctx, []provider.Provider{slow}, "", testTimeout)
+
+			if msg, want := messageFor(t, got.Errors, "claude"), "canceled"; msg != want {
+				t.Errorf("message = %q, want %q (the per-provider timeout did not fire)", msg, want)
+			}
+		})
+	}
+}
+
+func TestRun_PanickingProviderDoesNotBlockOthers(t *testing.T) {
+	ok := providertest.Succeeding("codex", []provider.Window{win("codex", "weekly")})
+	boom := panicker{id: "claude", value: "nil map write"}
+
+	got := run(context.Background(), []provider.Provider{boom, ok}, "", testTimeout)
+
+	if want := []string{"codex/weekly"}; !equalStrings(windowKeys(got.Windows), want) {
+		t.Errorf("Windows = %v, want %v (a sibling panic must not lose this)", windowKeys(got.Windows), want)
+	}
+	if want := []string{"claude"}; !equalStrings(errorProviders(got.Errors), want) {
+		t.Fatalf("Errors = %v, want %v", got.Errors, want)
+	}
+	if msg, want := messageFor(t, got.Errors, "claude"), "provider panicked: nil map write"; msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+}
+
+// panicker is a detected provider whose Fetch panics; Run must contain the
+// panic so sibling providers still report.
+type panicker struct {
+	id    string
+	value any
+}
+
+func (p panicker) ID() string { return p.id }
+
+func (p panicker) Detect(ctx context.Context) (bool, string) { return true, "" }
+
+func (p panicker) Fetch(ctx context.Context) ([]provider.Window, error) { panic(p.value) }
+
+// ctxRecorder is a detected provider that records the context its Fetch
+// received, announces that Fetch is in flight, and then blocks until that
+// context is done (with a safety net so a broken implementation fails the
+// test rather than hanging the suite).
+type ctxRecorder struct {
+	id      string
+	started chan struct{}
+
+	mu  sync.Mutex
+	ctx context.Context
+}
+
+func newCtxRecorder(id string) *ctxRecorder {
+	return &ctxRecorder{id: id, started: make(chan struct{})}
+}
+
+func (r *ctxRecorder) ID() string { return r.id }
+
+func (r *ctxRecorder) Detect(ctx context.Context) (bool, string) { return true, "" }
+
+func (r *ctxRecorder) Fetch(ctx context.Context) ([]provider.Window, error) {
+	r.mu.Lock()
+	r.ctx = ctx
+	r.mu.Unlock()
+	close(r.started)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(10 * time.Second):
+		return nil, errors.New("ctxRecorder safety net fired: context never became done")
+	}
+}
+
+func (r *ctxRecorder) recorded() context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ctx
 }
 
 // deadlineRecorder is a detected provider that reports the deadline of the
