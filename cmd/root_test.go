@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"bytes"
-	"strings"
 	"testing"
+
+	"github.com/Harrison-Blair/qmeter/internal/version"
 )
 
 func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
@@ -33,7 +34,11 @@ func TestExecuteWithArgs_Version(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"version"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(version): %v", err)
 	}
-	if !strings.HasPrefix(out.String(), "qmeter ") {
-		t.Fatalf("unexpected output: %q", out.String())
+	// Exact match, not a prefix: the root command's own Long text also starts
+	// with "qmeter ", so a prefix check would still pass if ExecuteWithArgs
+	// stopped applying args and printed the help banner instead.
+	want := "qmeter " + version.String() + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

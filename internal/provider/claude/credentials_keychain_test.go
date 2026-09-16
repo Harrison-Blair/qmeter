@@ -4,7 +4,7 @@ package claude
 // path through subprocess.Fake and an injected GOOS, so they run on every OS
 // and there are deliberately no build tags here.
 //
-// The plan named this file credentials_darwin_test.go. That name cannot work:
+// The obvious name for this file, credentials_darwin_test.go, cannot work:
 // a _darwin suffix is itself a GOOS build constraint, ANDed with any
 // //go:build line, so Go would compile this file only on macOS and the very
 // CI that has to exercise the Keychain path would skip it (`go list` reports
