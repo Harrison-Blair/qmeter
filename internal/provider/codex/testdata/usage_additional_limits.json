@@ -1,0 +1,21 @@
+{
+  "plan_type": "pro",
+  "rate_limit": {
+    "primary_window": {
+      "used_percent": 10,
+      "window_minutes": 300,
+      "resets_in_seconds": 600
+    }
+  },
+  "additional_rate_limits": [
+    {
+      "name": "gpt-5-codex",
+      "primary_window": {"used_percent": 20, "window_minutes": 300, "resets_in_seconds": 60},
+      "secondary_window": {"used_percent": 30, "window_minutes": 10080, "resets_in_seconds": 120}
+    },
+    {
+      "name": "sora",
+      "primaryWindow": {"usedPercent": 40, "windowMinutes": 1440, "resetsInSeconds": 30}
+    }
+  ]
+}
