@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
@@ -15,19 +16,57 @@ import (
 // credential in its auth store. It is also this provider's ID.
 const storeEntryKey = "opencode-go"
 
+// windowsGOOS is the one platform that spells the home directory
+// %USERPROFILE% rather than $HOME.
+const windowsGOOS = "windows"
+
 // defaultCredentialPath returns the OS-default location of OpenCode's auth
-// store, ~/.local/share/opencode/auth.json. Windows-specific path handling is
-// a later unit's job; on any OS this stays $HOME-relative for now.
+// store for the platform this binary was built for.
+func defaultCredentialPath() string {
+	return credentialPathFor(runtime.GOOS)
+}
+
+// credentialPathFor returns OpenCode's auth store for goos. It is the only
+// place in this package a default path is decided, and the platform is passed
+// in (runtime.GOOS in production) so every platform's answer is testable from
+// any host.
+//
+// OpenCode keeps the store in the same XDG-shaped layout on every platform —
+// it is not %APPDATA%-relative on Windows — so only the home directory itself
+// differs:
+//
+//	Windows        %USERPROFILE%\.local\share\opencode\auth.json
+//	macOS, Linux   $HOME/.local/share/opencode/auth.json
+//
+// filepath.Join supplies the separator, so the Windows form above is what a
+// Windows build produces, not a string spelled out here.
 //
 // When the home directory cannot be determined the path is returned empty,
 // which makes the loader report the store as absent — i.e. "not logged in" —
 // rather than reading something unintended.
-func defaultCredentialPath() string {
-	home, err := os.UserHomeDir()
+func credentialPathFor(goos string) string {
+	home, err := homeDirFor(goos)
 	if err != nil {
 		return ""
 	}
 	return filepath.Join(home, ".local", "share", "opencode", "auth.json")
+}
+
+// homeDirFor returns the home directory goos keeps credentials under:
+// %USERPROFILE% on Windows, $HOME everywhere else. os.UserHomeDir already
+// reads exactly those variables per platform, so this only makes the choice
+// explicit and injectable — it is what lets a Linux CI runner assert the
+// Windows path — and os.UserHomeDir remains the fallback (and the source of
+// the "home directory unknown" error) whenever the variable is unset.
+func homeDirFor(goos string) (string, error) {
+	env := "HOME"
+	if goos == windowsGOOS {
+		env = "USERPROFILE"
+	}
+	if dir := os.Getenv(env); dir != "" {
+		return dir, nil
+	}
+	return os.UserHomeDir()
 }
 
 // storeEntry is one provider's record in OpenCode's auth store. Only the API
