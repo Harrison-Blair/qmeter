@@ -16,3 +16,12 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race ./...
+      - name: Script tests
+        run: |
+          # Run every script before failing: `bash -e` would otherwise stop at
+          # the first failing one and hide the rest.
+          for t in .github/scripts/*_test.sh; do
+            echo "== $t"
+            bash "$t" || failed=1
+          done
+          exit "${failed:-0}"
