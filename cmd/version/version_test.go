@@ -1,4 +1,4 @@
-package cli
+package version
 
 import (
 	"bytes"
@@ -7,12 +7,12 @@ import (
 )
 
 func TestVersionCmd(t *testing.T) {
-	root := NewRootCmd()
+	cmd := New()
 	var out bytes.Buffer
-	root.SetOut(&out)
-	root.SetArgs([]string{"version"})
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
 
-	if err := root.Execute(); err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if !strings.HasPrefix(out.String(), "qmeter ") {
