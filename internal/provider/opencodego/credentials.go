@@ -70,12 +70,17 @@ func loadKey(path string) (string, error) {
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return "", fmt.Errorf("%s has an unreadable %q entry: %w", path, storeEntryKey, err)
 	}
-	if strings.TrimSpace(entry.Key) == "" {
+	// Trim before both the emptiness check and the return: a key with a
+	// trailing newline would otherwise pass Detect and then be rejected by
+	// net/http as an invalid Authorization header value, so the request would
+	// never leave the process.
+	key := strings.TrimSpace(entry.Key)
+	if key == "" {
 		// The entry exists but carries no key — the user is logged out of
 		// the Go plan even though the file is there.
 		return "", credstore.ErrNotFound
 	}
-	return entry.Key, nil
+	return key, nil
 }
 
 // credential resolves the API key for one call, applying the env override

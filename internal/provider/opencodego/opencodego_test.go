@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
@@ -154,10 +155,56 @@ func TestCredentials_MissingFileReturnsNotLoggedInFromFetch(t *testing.T) {
 }
 
 func TestDefaultCredentialPath_IsHomeRelativeOpenCodeAuthFile(t *testing.T) {
-	got := defaultCredentialPath()
-	want := filepath.Join(".local", "share", "opencode", "auth.json")
-	if !strings.HasSuffix(got, want) {
-		t.Errorf("defaultCredentialPath() = %q, want it to end with %q", got, want)
+	// Set the home directory this test reads rather than depending on the
+	// one the test runner happens to have: with HOME unset, os.UserHomeDir
+	// fails and the assertion would be about the environment, not the code.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // what os.UserHomeDir reads on Windows
+
+	want := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	if got := defaultCredentialPath(); got != want {
+		t.Errorf("defaultCredentialPath() = %q, want %q", got, want)
+	}
+}
+
+func TestCredentials_UnknownHomeIsNotLoggedIn(t *testing.T) {
+	// defaultCredentialPath returns "" when the home directory cannot be
+	// determined; the loader must treat that as an absent store rather than
+	// reading some relative path.
+	if _, err := loadKey(""); !errors.Is(err, credstore.ErrNotFound) {
+		t.Errorf("loadKey(\"\") err = %v, want credstore.ErrNotFound", err)
+	}
+}
+
+func TestCredentials_TrailingWhitespaceInStoredKeyIsTrimmed(t *testing.T) {
+	clearEnv(t)
+	path := filepath.Join("testdata", "auth_trailing_newline.json")
+
+	const want = "sk-opencode-go-newline-key"
+	got, err := loadKey(path)
+	if err != nil {
+		t.Fatalf("loadKey() err = %v", err)
+	}
+	if got != want {
+		t.Errorf("loadKey() = %q, want %q", got, want)
+	}
+
+	// The real damage of an untrimmed key shows up on the wire: net/http
+	// rejects a header value containing a newline, so the request never
+	// leaves the process even though Detect said all was well.
+	srv, rec := fixtureServer(t, "usage_weekly_only.json")
+	p := New(
+		WithCredentialPath(path),
+		WithBaseURL(srv.URL),
+		WithHTTPClient(srv.Client()),
+	)
+	if _, err := p.Fetch(testContext(t)); err != nil {
+		t.Fatalf("Fetch() err = %v", err)
+	}
+	_, _, header := rec.snapshot()
+	if got, want := header.Get("Authorization"), "Bearer "+want; got != want {
+		t.Errorf("Authorization = %q, want %q", got, want)
 	}
 }
 
@@ -381,6 +428,43 @@ func TestMonthlyPeriod_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestMonthlyPeriod_IndependentOfHostTimeZone(t *testing.T) {
+	// A resetsAt with a numeric offset parses into time.Local when the offset
+	// happens to match the host zone, and stepping a month back inside a
+	// DST-observing location silently shortens the period by an hour. The
+	// same instant at the same offset must always yield the same period.
+	nyc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+
+	// 2026-04-05T12:00:00-04:00 — one month back lands on 2026-03-05, before
+	// that year's US DST change, so a location-aware step changes offset.
+	inNYC := time.Date(2026, 4, 5, 12, 0, 0, 0, nyc)
+	fixed := inNYC.In(time.FixedZone("", -4*60*60))
+	inBerlin := inNYC.In(berlin)
+
+	const want = 31 * 24 * time.Hour
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{
+		{name: "fixed -04:00 offset", at: fixed},
+		{name: "America/New_York", at: inNYC},
+		{name: "Europe/Berlin", at: inBerlin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := monthlyPeriod(tc.at); got != want {
+				t.Errorf("monthlyPeriod(%s) = %v, want %v", tc.at, got, want)
+			}
+		})
+	}
+}
+
 func TestFetch_RateLimitedStatusForces100Percent(t *testing.T) {
 	clearEnv(t)
 	// The rolling window reports percent 37 alongside status "rate-limited";
@@ -454,7 +538,6 @@ func TestFetch_OutOfRangePercentErrors(t *testing.T) {
 		fixture string
 		want    string
 	}{
-		{name: "fractional 0..1 value", fixture: "usage_percent_fraction.json", want: "0.42"},
 		{name: "above 100", fixture: "usage_percent_too_high.json", want: "150"},
 		{name: "below zero", fixture: "usage_percent_negative.json", want: "-1"},
 	}
@@ -474,6 +557,41 @@ func TestFetch_OutOfRangePercentErrors(t *testing.T) {
 				t.Errorf("Fetch() err = %q, want it to quote the bad percent %s", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestFetch_DecimalPercentIsPreserved(t *testing.T) {
+	clearEnv(t)
+	srv, _ := fixtureServer(t, "usage_percent_decimal.json")
+
+	got, err := testProvider(t, srv).Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() err = %v", err)
+	}
+	assertWindows(t, got, []provider.Window{{
+		Provider:    "opencode-go",
+		Name:        "5h",
+		Plan:        "go",
+		UsedPercent: 42.5,
+		ResetsAt:    mustTime(t, "2026-09-16T15:04:05Z"),
+		Period:      5 * time.Hour,
+	}})
+}
+
+func TestFetch_MalformedBodyIsADecodeError(t *testing.T) {
+	clearEnv(t)
+	srv, _ := fixtureServer(t, "usage_malformed.json")
+
+	_, err := testProvider(t, srv).Fetch(testContext(t))
+	if err == nil {
+		t.Fatal("Fetch() err = nil, want a decode error for a truncated body")
+	}
+	if !strings.Contains(err.Error(), "decode") {
+		t.Errorf("Fetch() err = %q, want it to say the body could not be decoded", err)
+	}
+	// The renderer already prints the provider name in its own column.
+	if strings.Contains(err.Error(), "opencode-go") {
+		t.Errorf("Fetch() err = %q, must not carry a provider-name prefix", err)
 	}
 }
 

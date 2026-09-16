@@ -141,8 +141,9 @@ type usageResponse struct {
 }
 
 // windowUsage is one window in that response. Percent is a json.Number so a
-// value that is not a whole 0-100 percentage — a 0..1 fraction, say — can be
-// rejected rather than rendered as a wrong meter.
+// value outside the documented 0-100 range can be rejected rather than
+// rendered as a wrong meter, and so an absent field stays distinguishable
+// from a real zero.
 type windowUsage struct {
 	Status   string      `json:"status"`
 	Percent  json.Number `json:"percent"`
@@ -214,21 +215,28 @@ func (u windowUsage) window(name string) (provider.Window, error) {
 	return w, nil
 }
 
-// usedPercent reads the documented "percent: int 0-100". Anything else — a
-// 0..1 fraction, an out-of-range number, a missing field — means the response
-// shape changed, and a wrong meter is worse than an error line.
+// usedPercent reads "percent", documented as an int 0-100 but accepted as any
+// number in that range: the vendor adding a decimal place is a plausible,
+// harmless change, and the renderer prints one decimal anyway. Only a value
+// outside 0-100, a non-number, or a missing field is treated as a changed
+// response, because a wrong meter is worse than an error line.
+//
+// The trade: were the vendor to switch to a 0..1 fraction, 0.42 would render
+// as 0.4% rather than failing outright. That is the deliberate cost of not
+// rejecting decimals — a fraction is in range, so range checking cannot tell
+// the two encodings apart.
 func usedPercent(n json.Number) (float64, error) {
 	if n == "" {
 		return 0, errors.New("percent is missing; the response shape has changed")
 	}
-	v, err := n.Int64()
+	v, err := n.Float64()
 	if err != nil {
-		return 0, fmt.Errorf("percent %s is not a whole number; the response shape has changed", n)
+		return 0, fmt.Errorf("percent %s is not a number; the response shape has changed", n)
 	}
 	if v < 0 || v > 100 {
-		return 0, fmt.Errorf("percent %d is outside 0-100; the response shape has changed", v)
+		return 0, fmt.Errorf("percent %s is outside 0-100; the response shape has changed", n)
 	}
-	return float64(v), nil
+	return v, nil
 }
 
 // monthlyPeriod is the length of the calendar month ending at resetsAt: one
@@ -244,7 +252,16 @@ func monthlyPeriod(resetsAt time.Time) time.Duration {
 
 // monthBefore steps t back one calendar month without time.AddDate's
 // normalization, which would turn a clamped 31 February into early March.
+//
+// The calculation is done at t's own UTC offset, held fixed. time.Parse hands
+// back a time in time.Local whenever the offset it read matches the host
+// zone, and stepping a month back inside a DST-observing location would then
+// cross a transition and shorten the period by an hour — making
+// period_seconds depend on the machine qmeter happens to run on.
 func monthBefore(t time.Time) time.Time {
+	_, offset := t.Zone()
+	t = t.In(time.FixedZone("", offset))
+
 	year, month, day := t.Date()
 	prevYear, prevMonth := year, month-1
 	if prevMonth < time.January {
