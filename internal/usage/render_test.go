@@ -13,8 +13,8 @@ import (
 // countdown is deterministic.
 var renderNow = time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 
-// goldenBlock is the exact text output ruled in docs/plan.md, "Command
-// surface and output". It is the real output of
+// goldenBlock is the exact golden text output this package renders, per the
+// layout contract in RenderText's doc comment. It is the real output of
 // tabwriter.NewWriter(out, 0, 8, 2, ' ', 0) — do not hand-align it.
 const goldenBlock = "" +
 	"PROVIDER     WINDOW   PLAN  USED    RESETS\n" +

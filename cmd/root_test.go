@@ -1,6 +1,10 @@
-package main
+package cmd
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
 
 func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
 	root := NewRootCmd()
@@ -20,5 +24,16 @@ func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
 		if !found {
 			t.Errorf("root does not register the %q subcommand", name)
 		}
+	}
+}
+
+func TestExecuteWithArgs_Version(t *testing.T) {
+	var out bytes.Buffer
+
+	if err := ExecuteWithArgs([]string{"version"}, &out); err != nil {
+		t.Fatalf("ExecuteWithArgs(version): %v", err)
+	}
+	if !strings.HasPrefix(out.String(), "qmeter ") {
+		t.Fatalf("unexpected output: %q", out.String())
 	}
 }

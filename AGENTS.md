@@ -29,11 +29,13 @@ Never weaken or skip a test to get green.
 
 ## Layout
 
-`cmd/` holds the entrypoint and root command directly. Every subcommand gets its own
-folder under `cmd/<name>/` with at least one file that defines the cobra command and
-calls into `internal/`. `internal/` mirrors that: one folder per subcommand under
-`internal/<name>/`, plus folders for shared logic. Command files hold wiring only;
-logic and its tests live in `internal/`.
+The module root's `main.go` is the installable entrypoint and only calls
+`cmd.Execute()`, so `go install .` produces a binary named `qmeter`. `cmd/` is a
+library package holding the root command and the per-subcommand wiring. Every
+subcommand gets its own folder under `cmd/<name>/` with at least one file that
+defines the cobra command and calls into `internal/`. `internal/` mirrors that:
+one folder per subcommand under `internal/<name>/`, plus folders for shared
+logic. Command files hold wiring only; logic and its tests live in `internal/`.
 
 ## Instructions
 
