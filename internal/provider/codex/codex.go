@@ -203,8 +203,10 @@ func (p *Provider) windows(resp usageResponse, cred credential) []provider.Windo
 	// Additional limits are per-feature, so their own name carries the
 	// meaning and the position stays literal.
 	for _, extra := range resp.Additional {
-		add(extra.Primary, additionalName(extra.Name, "primary"))
-		add(extra.Secondary, additionalName(extra.Name, "secondary"))
+		name := extra.displayName()
+		primary, secondary := extra.windows()
+		add(primary, additionalName(name, "primary"))
+		add(secondary, additionalName(name, "secondary"))
 	}
 	return out
 }
@@ -299,10 +301,26 @@ func (l *rateLimit) UnmarshalJSON(data []byte) error {
 }
 
 // additionalLimit is one named per-feature rate limit.
+//
+// Two spellings are accepted. The reference table's is a flat entry —
+// {name, primary_window, secondary_window} — while the endpoint currently
+// sends {limit_name, metered_feature, rate_limit: {primary_window,
+// secondary_window}}, with the windows one level down. Both are read, so
+// neither a rollback nor a further rename silently drops these limits.
 type additionalLimit struct {
-	Name      string
-	Primary   limitWindow
-	Secondary limitWindow
+	Name           string // "name" (reference spelling)
+	LimitName      string // "limit_name" (live spelling)
+	MeteredFeature string // "metered_feature" (live fallback name)
+
+	Primary      limitWindow
+	HasPrimary   bool
+	Secondary    limitWindow
+	HasSecondary bool
+
+	// Nested holds the windows the live shape puts under the entry's own
+	// "rate_limit" object.
+	Nested    rateLimit
+	HasNested bool
 }
 
 // UnmarshalJSON decodes one additional limit tolerantly.
@@ -311,24 +329,76 @@ func (a *additionalLimit) UnmarshalJSON(data []byte) error {
 		switch key {
 		case "name":
 			a.Name = decodeString(raw)
+		case "limitname":
+			a.LimitName = decodeString(raw)
+		case "meteredfeature":
+			a.MeteredFeature = decodeString(raw)
 		case "primarywindow":
-			_ = json.Unmarshal(raw, &a.Primary)
+			if !isJSONNull(raw) && json.Unmarshal(raw, &a.Primary) == nil {
+				a.HasPrimary = true
+			}
 		case "secondarywindow":
-			_ = json.Unmarshal(raw, &a.Secondary)
+			if !isJSONNull(raw) && json.Unmarshal(raw, &a.Secondary) == nil {
+				a.HasSecondary = true
+			}
+		case "ratelimit":
+			if !isJSONNull(raw) && json.Unmarshal(raw, &a.Nested) == nil {
+				a.HasNested = true
+			}
 		}
 	})
+}
+
+// displayName is the name this limit's windows are labelled with, in
+// precedence order: the reference spelling "name", then the live
+// "limit_name", then "metered_feature" for an entry that leaves its name
+// empty. All blank yields "", and additionalName then falls back to the bare
+// position.
+func (a additionalLimit) displayName() string {
+	for _, candidate := range []string{a.Name, a.LimitName, a.MeteredFeature} {
+		if name := strings.TrimSpace(candidate); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// windows returns this limit's two windows: the ones the entry carries
+// directly when it has them, otherwise the ones nested under its own
+// rate_limit object. Each position falls back independently, so a response
+// that mixes the two spellings still yields both windows.
+func (a additionalLimit) windows() (primary, secondary limitWindow) {
+	primary, secondary = a.Primary, a.Secondary
+	if !a.HasPrimary && a.HasNested {
+		primary = a.Nested.Primary
+	}
+	if !a.HasSecondary && a.HasNested {
+		secondary = a.Nested.Secondary
+	}
+	return primary, secondary
 }
 
 // limitWindow is one window of a rate limit. Every field is optional, so
 // presence is tracked rather than inferred from a zero value: 0% used and
 // "not reported" are different things.
+//
+// Each quantity has both the reference table's key name and the one the
+// endpoint currently sends; see resetsAt and period for the precedence when
+// a response carries both.
 type limitWindow struct {
-	UsedPercent   *float64
-	ResetsAt      time.Time
-	HasResetsAt   bool
-	ResetsIn      *float64
-	WindowMinutes *float64
-	WindowSeconds *float64
+	UsedPercent *float64
+
+	ResetsAt    time.Time // "resets_at" (reference spelling)
+	HasResetsAt bool
+	ResetAt     time.Time // "reset_at" (live spelling)
+	HasResetAt  bool
+
+	ResetsIn   *float64 // "resets_in_seconds" (reference spelling)
+	ResetAfter *float64 // "reset_after_seconds" (live spelling)
+
+	WindowMinutes      *float64 // "window_minutes" (reference spelling)
+	WindowSeconds      *float64 // "window_seconds" (reference spelling)
+	LimitWindowSeconds *float64 // "limit_window_seconds" (live spelling)
 }
 
 // UnmarshalJSON decodes one window tolerantly.
@@ -341,12 +411,20 @@ func (w *limitWindow) UnmarshalJSON(data []byte) error {
 			if t, ok := decodeTimestamp(raw); ok {
 				w.ResetsAt, w.HasResetsAt = t, true
 			}
+		case "resetat":
+			if t, ok := decodeTimestamp(raw); ok {
+				w.ResetAt, w.HasResetAt = t, true
+			}
 		case "resetsinseconds":
 			w.ResetsIn = decodeNumber(raw)
+		case "resetafterseconds":
+			w.ResetAfter = decodeNumber(raw)
 		case "windowminutes":
 			w.WindowMinutes = decodeNumber(raw)
 		case "windowseconds":
 			w.WindowSeconds = decodeNumber(raw)
+		case "limitwindowseconds":
+			w.LimitWindowSeconds = decodeNumber(raw)
 		}
 	})
 }
@@ -368,26 +446,51 @@ func (w limitWindow) normalize(name, plan string, now time.Time) (provider.Windo
 		// nothing left is exactly what that flag means.
 		RateLimited: *w.UsedPercent >= 100,
 	}
-	switch {
-	case w.HasResetsAt:
-		out.ResetsAt = w.ResetsAt
-	case w.ResetsIn != nil:
-		out.ResetsAt = now.Add(time.Duration(*w.ResetsIn * float64(time.Second)))
+	if resetsAt, ok := w.resetsAt(now); ok {
+		out.ResetsAt = resetsAt
 	}
 	return out, true
 }
 
-// period is the window length, preferring window_minutes over
-// window_seconds when a response carries both.
+// resetsAt resolves when this window next resets. An absolute reset time
+// beats a relative one, since it survives a slow request; within each pair
+// the reference table's spelling is tried before the live one. The two
+// spellings are expected to agree, so this order only has to be stable.
+func (w limitWindow) resetsAt(now time.Time) (time.Time, bool) {
+	switch {
+	case w.HasResetsAt:
+		return w.ResetsAt, true
+	case w.HasResetAt:
+		return w.ResetAt, true
+	case w.ResetsIn != nil:
+		return now.Add(seconds(*w.ResetsIn)), true
+	case w.ResetAfter != nil:
+		return now.Add(seconds(*w.ResetAfter)), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+// period is the window length. When a response carries more than one
+// spelling, the reference table's window_minutes wins, then its
+// window_seconds, then the live limit_window_seconds; they are expected to
+// agree, so this order only has to be stable.
 func (w limitWindow) period() time.Duration {
 	switch {
 	case w.WindowMinutes != nil:
 		return time.Duration(*w.WindowMinutes * float64(time.Minute))
 	case w.WindowSeconds != nil:
-		return time.Duration(*w.WindowSeconds * float64(time.Second))
+		return seconds(*w.WindowSeconds)
+	case w.LimitWindowSeconds != nil:
+		return seconds(*w.LimitWindowSeconds)
 	default:
 		return 0
 	}
+}
+
+// seconds turns a possibly fractional count of seconds into a Duration.
+func seconds(v float64) time.Duration {
+	return time.Duration(v * float64(time.Second))
 }
 
 // --- tolerant JSON decoding -------------------------------------------------
