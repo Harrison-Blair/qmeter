@@ -129,6 +129,11 @@ func (p *Provider) ID() string { return providerID }
 // there and parses, so the user is logged in; Fetch is what reports the
 // expiry. When the answer is false the reason is shown to the user verbatim
 // and carries no provider-name prefix.
+//
+// On macOS this is not free of side effects: resolving a credential reads the
+// Keychain by spawning /usr/bin/security (see credentials.go), which can put
+// a Keychain authorization prompt in front of the user. Denying it does not
+// report them as logged out — the lookup error is surfaced instead.
 func (p *Provider) Detect(ctx context.Context) (bool, string) {
 	_, _, err := p.resolve(ctx)
 	switch {

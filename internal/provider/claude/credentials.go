@@ -9,27 +9,30 @@ package claude
 //     current OS into the default location of Claude's credential file.
 //     Nothing else in this package decides a path, so adding the exact
 //     Windows path means editing this function and nothing else.
-//   - Provider.keychain, a keychainLoader, is the KEYCHAIN seam (U6's alone):
-//     it returns the raw credential JSON from the macOS Keychain
+//   - Provider.keychain, a keychainLoader, is the KEYCHAIN seam (U6's
+//     alone): it returns the raw credential JSON from the macOS Keychain
 //     (`/usr/bin/security find-generic-password -s "Claude Code-credentials"
-//     -w`, via internal/lib/subprocess). On this unit it is noKeychain, which
-//     always fails, so loadStore falls back to the file on every platform.
+//     -w`, via internal/lib/subprocess). It is live from this unit on,
+//     gated on GOOS, and a failed lookup still falls back to the file.
 //
 // Both seams yield raw JSON bytes and hand them to parseStore, so the store's
 // JSON shape and the expiry rule stay in exactly one place no matter where
 // the bytes came from.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -58,15 +61,108 @@ type storeFile struct {
 // failed; loadStore then falls back to the credential file.
 type keychainLoader func(ctx context.Context) ([]byte, error)
 
-// errNoKeychain is what noKeychain reports: there is no keychain credential
-// source on this unit, on any platform.
-var errNoKeychain = errors.New("no keychain credential source")
+const (
+	// keychainService is the Keychain service name Claude Code stores the
+	// very same credential JSON under on macOS.
+	keychainService = "Claude Code-credentials"
 
-// noKeychain is the default keychainLoader and the U6 seam: it always fails,
-// so every platform reads the credential file. U6 replaces it with the macOS
-// Keychain lookup, gated on runtime.GOOS, keeping the same fall-back-to-file
-// behavior on error.
-func noKeychain(context.Context) ([]byte, error) { return nil, errNoKeychain }
+	// securityBinary is macOS's keychain CLI, spelled absolutely: this is a
+	// credential read, so it must not be resolvable through $PATH.
+	securityBinary = "/usr/bin/security"
+
+	// keychainSource is what parse errors call the Keychain, in place of the
+	// file path the file source contributes.
+	keychainSource = "keychain"
+
+	// darwinGOOS is the only platform with a Keychain to read.
+	darwinGOOS = "darwin"
+)
+
+var (
+	// errNoKeychain means this platform has no keychain source at all (any
+	// GOOS but darwin, or no runner to reach it with). It is a miss, not a
+	// failure: the file is then the only source and its own absence decides
+	// whether the user is logged in.
+	errNoKeychain = errors.New("no keychain credential source")
+
+	// errKeychainEmpty means security(1) succeeded but printed nothing. That
+	// is a miss too — an empty store is no store — not a credential that
+	// happens to be blank.
+	errKeychainEmpty = errors.New("keychain lookup returned no data")
+)
+
+// keychainLookup returns a keychainLoader that reads Claude's credential JSON
+// from the macOS Keychain by running, exactly:
+//
+//	/usr/bin/security find-generic-password -s "Claude Code-credentials" -w
+//
+// goos is the platform to act as (runtime.GOOS in production, injected in
+// tests): off darwin the loader never spawns anything at all, so no other
+// platform pays for a command that could not work there. The subprocess is
+// the reason Detect can raise a Keychain prompt; see Detect's doc comment.
+//
+// UNTESTED ON REAL HARDWARE: every test drives this through subprocess.Fake.
+// The exact wire behavior of security(1) — its exit codes, its prompt, the
+// trailing newline on -w output — is taken from its documentation and stays
+// unverified until someone runs qmeter on a Mac.
+func keychainLookup(r subprocess.Runner, goos string) keychainLoader {
+	return func(ctx context.Context) ([]byte, error) {
+		if goos != darwinGOOS || r == nil {
+			return nil, errNoKeychain
+		}
+		return r.Run(ctx, securityBinary, "find-generic-password", "-s", keychainService, "-w")
+	}
+}
+
+// noKeychain is the default keychainLoader. It keeps the name U5 gave the
+// seam — claude.go's New refers to it and that file belongs to another unit —
+// but it is no longer a no-op: on macOS it reads the Keychain through a real
+// subprocess, and everywhere else it reports errNoKeychain so loadStore goes
+// straight to the file.
+func noKeychain(ctx context.Context) ([]byte, error) {
+	return keychainLookup(subprocess.Real{}, runtime.GOOS)(ctx)
+}
+
+// WithKeychainRunner runs the macOS Keychain lookup through r instead of a
+// real subprocess. Tests pass a subprocess.Fake; a nil r disables the
+// Keychain source, leaving the credential file. The lookup still only happens
+// on macOS — see withKeychain for the seam tests use to pretend otherwise.
+func WithKeychainRunner(r subprocess.Runner) Option {
+	return withKeychain(r, runtime.GOOS)
+}
+
+// withKeychain is the GOOS seam. It is an unexported Option rather than a
+// Provider field because the Provider struct lives in claude.go, which this
+// unit does not own; an Option keeps the whole Keychain source in this file.
+func withKeychain(r subprocess.Runner, goos string) Option {
+	return func(p *Provider) { p.keychain = keychainLookup(r, goos) }
+}
+
+// keychainMiss reports whether err means the Keychain simply holds nothing
+// for us, as opposed to a lookup that failed for some other reason.
+//
+// The distinction decides what the user is told when the credential file is
+// missing too. A miss is indistinguishable from having never logged in, so it
+// may degrade to "not logged in, run claude to log in". Anything else — most
+// importantly a denied or unavailable Keychain prompt — must keep its own
+// error: a user who clicked Deny is logged in perfectly well, and sending
+// them off to re-run `claude` would hide the real problem.
+//
+// The misses are: no keychain source on this platform, empty output, and
+// security(1) reporting the item is absent. That last one is matched on the
+// error text because the Runner interface deliberately hides os/exec: the
+// real runner surfaces an *exec.ExitError whose message is "exit status 44",
+// security(1)'s documented code for "The specified item could not be found in
+// the keychain". Any other exit code is treated as a real failure, which is
+// the safe direction to be wrong in.
+func keychainMiss(err error) bool {
+	if errors.Is(err, errNoKeychain) || errors.Is(err, errKeychainEmpty) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "exit status 44") ||
+		strings.Contains(msg, "could not be found")
+}
 
 // defaultCredentialPath returns the OS-default location of Claude's
 // credential file. This is the U13 seam: it is the only place a default path
@@ -106,9 +202,15 @@ func fromEnv(v string) (credential, error) {
 }
 
 // loadStore is the step-2 loader credstore calls: the keychain seam first,
-// then the credential file. Any keychain error (including "no keychain
-// source" on this unit) falls back to the file, which is the behavior U6
-// relies on.
+// then the credential file. A failed keychain LOOKUP falls back to the file;
+// a keychain HIT does not — bytes that came out of the Keychain but do not
+// parse are reported as the error they are, rather than silently reading a
+// file that may be staler.
+//
+// When the file is absent as well, the keychain error decides the wording: a
+// genuine miss (see keychainMiss) leaves os.ErrNotExist alone so credstore
+// renders "not logged in", while any other keychain failure replaces it, so a
+// denied Keychain prompt never reads as being logged out.
 //
 // Error vocabulary, per credstore's contract: os.ReadFile's error is returned
 // unchanged when the file is absent (credstore maps os.ErrNotExist to
@@ -116,15 +218,28 @@ func fromEnv(v string) (credential, error) {
 // holds no usable token, and provider.ErrTokenExpired by value when the token
 // is expired. It never returns a zero credential with a nil error.
 func (p *Provider) loadStore(ctx context.Context) (credential, error) {
-	if data, err := p.keychain(ctx); err == nil {
-		return p.parseStore(data, "keychain")
+	data, keychainErr := p.keychain(ctx)
+	if keychainErr == nil && len(bytes.TrimSpace(data)) == 0 {
+		keychainErr = errKeychainEmpty
 	}
+	if keychainErr == nil {
+		return p.parseStore(data, keychainSource)
+	}
+
 	path, err := p.credentialPath()
 	if err != nil {
 		return credential{}, err
 	}
-	data, err := os.ReadFile(path)
+	data, err = os.ReadFile(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && !keychainMiss(keychainErr) {
+			// Neither source produced a credential, and the keychain is the
+			// one that actually failed: keep its error so credstore reports
+			// it instead of mapping the missing file to "not logged in".
+			return credential{}, fmt.Errorf(
+				"macOS Keychain lookup (service %q) failed and there is no credential file at %s: %w",
+				keychainService, path, keychainErr)
+		}
 		return credential{}, err
 	}
 	return p.parseStore(data, path)
