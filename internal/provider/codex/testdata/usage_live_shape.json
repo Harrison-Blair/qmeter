@@ -1,0 +1,57 @@
+{
+  "plan_type": "pro",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "limit_window_seconds": 18000,
+      "reset_after_seconds": 7200,
+      "reset_at": 1789500000,
+      "used_percent": 12.5
+    },
+    "secondary_window": null
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "gpt-5-codex",
+      "metered_feature": "codex_gpt_5",
+      "normal_model_slug": null,
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "limit_window_seconds": 18000,
+          "reset_after_seconds": 600,
+          "reset_at": 1789490000,
+          "used_percent": 20
+        },
+        "secondary_window": {
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 86400,
+          "reset_at": 1789900000,
+          "used_percent": 30
+        }
+      }
+    },
+    {
+      "limit_name": "",
+      "metered_feature": "code_review",
+      "normal_model_slug": null,
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 3600,
+          "reset_at": 1789600000,
+          "used_percent": 5
+        },
+        "secondary_window": null
+      }
+    }
+  ],
+  "credits": {"has_credits": true, "unlimited": false, "balance": 3.5},
+  "model_usage": {"gpt-5": {"requests": 12}},
+  "spend_control": {"enabled": false},
+  "code_review_rate_limit": null
+}

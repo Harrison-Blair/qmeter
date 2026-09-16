@@ -1,0 +1,17 @@
+{
+  "plan_type": "plus",
+  "rate_limit": {
+    "primary_window": {
+      "used_percent": 42.5,
+      "resets_at": "2026-09-16T18:30:00Z",
+      "window_minutes": 300
+    },
+    "secondary_window": {
+      "used_percent": 18.25,
+      "resets_at": "2026-09-19T00:00:00Z",
+      "window_minutes": 10080
+    }
+  },
+  "credits": {"has_credits": true, "unlimited": false, "balance": 12.5},
+  "unknown_future_field": {"nested": [1, 2, 3]}
+}

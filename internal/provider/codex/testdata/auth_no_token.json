@@ -1,0 +1,10 @@
+{
+  "auth_mode": "chatgpt",
+  "last_refresh": "2026-09-15T10:04:11.123456Z",
+  "tokens": {
+    "access_token": "",
+    "refresh_token": "store-refresh-token",
+    "id_token": "",
+    "account_id": "store-account-id"
+  }
+}
