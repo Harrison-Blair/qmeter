@@ -49,13 +49,14 @@ clear it too.
 - [ ] **A known provider, not logged in.** Move `~/.claude/.credentials.json`
   aside and run `qmeter usage --provider claude`: it prints the header row and a
   two-cell padded line whose cells are `claude` and `not detected: not logged in,
-  run claude to log in` (two spaces between them when claude is the only row
-  printed — the first cell is padded to the widest provider name of the run), and
-  exits **0** — not detected is not an error. `qmeter usage --json --provider
-  claude` puts the same provider under `undetected`, with the text under a
-  `reason` key (not `message`, which is what the `errors` array
-  uses): `{"windows":[],"errors":[],"undetected":[{"provider":"claude","reason":
-  "not logged in, run claude to log in"}]}`. Plain `qmeter usage` with no
+  run claude to log in` (the PROVIDER cell is padded to the widest cell
+  in its column, the PROVIDER header included, so with claude the only row
+  printed, claude is followed by four spaces), and exits **0** — not detected is
+  not an error. `qmeter usage --json --provider claude` puts the same provider
+  under `undetected`, with the text under a `reason` key (not `message`, which is
+  what the `errors` array uses):
+  `{"windows":[],"errors":[],"undetected":[{"provider":"claude","reason":"not
+  logged in, run claude to log in"}]}`. Plain `qmeter usage` with no
   `--provider` must **not** print that line at all — undetected providers are
   silently omitted unless asked for by name.
 - [ ] **Each provider, logged in.** Log in to each CLI in turn (`claude`,
