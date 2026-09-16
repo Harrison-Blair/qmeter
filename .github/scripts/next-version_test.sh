@@ -144,15 +144,16 @@ expect_output "non-v tag is ignored" "$repo" "v0.1.0"
 # 9. Many tags: reading only the newest must not break on a long tag list.
 #    Piping `git tag` into `head -1` dies with SIGPIPE (exit 141) under
 #    `set -o pipefail` once the tag list outgrows the pipe buffer, which is a
-#    few hundred releases in. Tags are written in one `update-ref` batch so the
-#    case stays fast.
+#    few hundred releases in. The count is well clear of that edge: at 500 tags
+#    the old pipeline survived roughly 1 run in 60, at 1000 it never does.
+#    Tags are written in one `update-ref` batch so the case stays fast.
 repo=$(make_repo)
 first_commit=$(git -C "$repo" rev-parse HEAD)
-for i in $(seq 1 500); do
+for i in $(seq 1 1000); do
 	printf 'create refs/tags/v0.%d.0 %s\n' "$i" "$first_commit"
 done | git -C "$repo" update-ref --stdin
 commit "$repo" second
-expect_output "500 tags yields v0.501.0" "$repo" "v0.501.0"
+expect_output "1000 tags yields v0.1001.0" "$repo" "v0.1001.0"
 
 if [ "$failures" -ne 0 ]; then
 	printf '\n%d test(s) failed\n' "$failures" >&2
