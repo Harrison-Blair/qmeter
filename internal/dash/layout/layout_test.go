@@ -328,6 +328,65 @@ func TestZeroNowFallsBackToTheClock(t *testing.T) {
 	}
 }
 
+// TestCountdownCell drives the countdown field through Render: the largest
+// two non-zero units, a trailing zero unit dropped, an elapsed window that
+// is due now, and no reset time at all. The field is six cells wide, so a
+// countdown too long for it is cut with an ellipsis rather than pushing the
+// line out of true.
+func TestCountdownCell(t *testing.T) {
+	tests := []struct {
+		name   string
+		resets time.Duration
+		zero   bool
+		want   string
+	}{
+		{"exactly a day drops the zero hours", 24 * time.Hour, false, "1d"},
+		{"twelve days", 12 * 24 * time.Hour, false, "12d"},
+		{"exactly three hours drops the zero minutes", 3 * time.Hour, false, "3h"},
+		{"a day and two hours", 26 * time.Hour, false, "1d2h"},
+		{"two hours and five minutes", 2*time.Hour + 5*time.Minute, false, "2h5m"},
+		{"already elapsed", -5 * time.Minute, false, "0m"},
+		{"under a minute away", 30 * time.Second, false, "0m"},
+		{"no reset time at all", 0, true, "-"},
+		{"longer than the field", 1000*24*time.Hour + 5*time.Hour, false, "1000d…"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resets := now.Add(tc.resets)
+			if tc.zero {
+				resets = time.Time{}
+			}
+			if got := countdownCell(t, resets); got != tc.want {
+				t.Errorf("countdown = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// countdownCell renders one window at the 36-cell floor — where the column
+// is the whole page, so the countdown is the last six cells of the track
+// row — and returns that field with its padding trimmed. It fails the test
+// if the row is not exactly the page width, which is what a countdown too
+// long for its field would cost.
+func countdownCell(t *testing.T, resets time.Time) string {
+	t.Helper()
+	res := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68, ResetsAt: resets},
+	}}
+	for _, line := range layout.Render(res, layout.MinColumn, opts(false)) {
+		if !strings.Contains(line, "┴") || !strings.Contains(line, "%") {
+			continue
+		}
+		if w := runewidth.StringWidth(line); w != layout.MinColumn {
+			t.Fatalf("the track row is %d cells, want %d: %q", w, layout.MinColumn, line)
+		}
+		cells := []rune(line)
+		return strings.TrimRight(string(cells[len(cells)-6:]), " ")
+	}
+	t.Fatalf("no track row was rendered for a window resetting at %v", resets)
+	return ""
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func hasLineWith(lines []string, subs ...string) bool {
