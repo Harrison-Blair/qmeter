@@ -240,14 +240,14 @@ type scopedLimit struct {
 // — "<display name> weekly" for a weekly kind, matching the "sonnet weekly" /
 // "opus weekly" convention the documented windows already use, and
 // "<display name> <kind>" otherwise. An entry with no scope is named after
-// its kind, falling back to its group. Display names are lowercased so the
+// its kind, falling back to its group. Both halves are lowercased so the
 // column reads consistently whatever casing the vendor sends.
 func (l scopedLimit) name() string {
-	kind := strings.TrimSpace(l.Kind)
+	kind := strings.ToLower(strings.TrimSpace(l.Kind))
 	if l.Scope != nil {
 		if display := strings.ToLower(strings.TrimSpace(l.Scope.Model.DisplayName)); display != "" {
 			switch {
-			case strings.Contains(strings.ToLower(kind), "weekly"):
+			case strings.Contains(kind, "weekly"):
 				return display + " weekly"
 			case kind != "":
 				return display + " " + kind
@@ -276,11 +276,18 @@ func (l scopedLimit) period() time.Duration {
 	}
 }
 
-// emitted remembers what has already been reported. Reset instants are the
-// identity: the live response restates a documented window inside the limits
-// list with that window's exact reset instant, down to the microsecond, while
-// a genuinely distinct per-model limit differs there even when it shares a
-// group name. Names are tracked only to keep the output readable.
+// emitted remembers what has already been reported.
+//
+// The instant set holds the DOCUMENTED windows only. The live response
+// restates those inside the limits list with the window's exact reset
+// instant, down to the microsecond, which is how a restatement is recognized.
+// Scoped entries are deliberately never added: the vendor already emits
+// several documented windows at one identical instant, so two per-model
+// limits may legitimately line up too, and matching them against each other
+// would silently drop one of them.
+//
+// Names are tracked for every window, but only to keep the output readable —
+// a collision renames, it never drops.
 type emitted struct {
 	instants map[string]bool
 	names    map[string]bool
@@ -302,9 +309,8 @@ func (e *emitted) seenInstant(t time.Time) bool {
 }
 
 // uniqueName returns name, or name with a " (2)", " (3)"… suffix when that
-// name is taken, so two limits that are genuinely different — different reset
-// instants — never collapse into one row just because they describe the same
-// model.
+// name is taken, so two different limits never collapse into one row just
+// because they end up described the same way.
 func (e *emitted) uniqueName(name string) string {
 	if !e.names[name] {
 		return name
@@ -317,11 +323,19 @@ func (e *emitted) uniqueName(name string) string {
 	}
 }
 
-func (e *emitted) record(w provider.Window) {
-	e.names[w.Name] = true
+// recordDocumented remembers a documented window: its name, and its reset
+// instant, which is what later identifies a limits entry restating it.
+func (e *emitted) recordDocumented(w provider.Window) {
+	e.recordName(w.Name)
 	if !w.ResetsAt.IsZero() {
 		e.instants[instantKey(w.ResetsAt)] = true
 	}
+}
+
+// recordName remembers a name only. Scoped entries are recorded this way, so
+// one never suppresses another by resetting at the same instant.
+func (e *emitted) recordName(name string) {
+	e.names[name] = true
 }
 
 // windowsFrom normalizes a decoded response. plan is the credential's plan
@@ -348,7 +362,7 @@ func windowsFrom(body map[string]json.RawMessage, plan string) []provider.Window
 			Period:      kw.period,
 		}
 		out = append(out, window)
-		seen.record(window)
+		seen.recordDocumented(window)
 	}
 	return append(out, scopedWindows(body, plan, seen)...)
 }
@@ -386,10 +400,11 @@ func scopedWindows(body map[string]json.RawMessage, plan string, seen *emitted) 
 			if strings.TrimSpace(limit.Group) == "" || limit.Percent == nil || limit.ResetsAt.IsZero() {
 				continue
 			}
-			// The reset instant is the limit's identity. An entry resetting
-			// at exactly the same instant as a window already reported is
+			// An entry resetting at exactly a DOCUMENTED window's instant is
 			// that window restated — the live "session" and "weekly_all"
-			// entries — and would otherwise render as a duplicate row.
+			// entries — and would otherwise render as a duplicate row. Other
+			// scoped entries are not in the instant set, so two per-model
+			// limits that happen to align still both appear.
 			if seen.seenInstant(limit.ResetsAt.Time) {
 				continue
 			}
@@ -406,7 +421,7 @@ func scopedWindows(body map[string]json.RawMessage, plan string, seen *emitted) 
 				Period:      limit.period(),
 			}
 			out = append(out, window)
-			seen.record(window)
+			seen.recordName(window.Name)
 		}
 	}
 	return out

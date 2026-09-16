@@ -27,6 +27,11 @@
       "group": "5h",
       "percent": 99,
       "resets_at": "2026-09-16T18:30:00Z"
+    },
+    {
+      "group": "5h",
+      "percent": 77,
+      "resets_at": "2026-09-16T23:45:00Z"
     }
   ],
   "unknown_section": {
