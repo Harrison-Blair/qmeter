@@ -29,11 +29,14 @@ import (
 // is never about the numbers.
 var footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
-// The footer's fixed half. While a refetch is in flight `r` does nothing,
-// so the hint says what is happening instead of offering the key again.
+// The footer's fixed half. While a fetch is in flight `r` does nothing, so
+// the hint says what is happening instead of offering the key again — and
+// before the first result there is nothing to scroll either, so quitting is
+// the only key worth naming.
 const (
 	keyHints      = "↑↓ scroll · r refresh · q quit"
 	busyKeyHints  = "↑↓ scroll · refreshing… · q quit"
+	firstKeyHints = "fetching… · q quit"
 	fetchingLabel = "fetching…"
 )
 
@@ -237,7 +240,10 @@ func (m Model) clamp(off int) int {
 // out of sight announce themselves the moment the page is scrolled.
 func (m Model) footer(total, fits int) string {
 	hints := keyHints
-	if m.loading {
+	switch {
+	case m.loading && !m.haveRes:
+		hints = firstKeyHints
+	case m.loading:
 		hints = busyKeyHints
 	}
 

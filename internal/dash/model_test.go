@@ -393,6 +393,13 @@ func TestView_LoadingBeforeTheFirstResult(t *testing.T) {
 	if !strings.Contains(got[banner.Height], "fetching…") {
 		t.Errorf("first body line = %q, want fetching…", got[banner.Height])
 	}
+	footer := got[len(got)-1]
+	if !strings.Contains(footer, "fetching…") || !strings.Contains(footer, "q quit") {
+		t.Errorf("footer during the first fetch = %q, want fetching… and q quit", footer)
+	}
+	if strings.Contains(footer, "scroll") || strings.Contains(footer, "refresh") {
+		t.Errorf("footer during the first fetch = %q, want no keys that do nothing yet", footer)
+	}
 }
 
 func TestInit_StartsAFetch(t *testing.T) {
