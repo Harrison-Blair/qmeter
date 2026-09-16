@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
@@ -50,15 +51,52 @@ type authTokens struct {
 	AccountID    string `json:"account_id"`
 }
 
+// windowsGOOS is the one platform that spells the home directory
+// %USERPROFILE% rather than $HOME.
+const windowsGOOS = "windows"
+
 // defaultCredentialPath returns the OS default location of the Codex auth
-// store. U13 owns the Windows-exact form of this function; nothing else in
-// this package computes a default path.
+// store for the platform this binary was built for.
 func defaultCredentialPath() (string, error) {
-	home, err := os.UserHomeDir()
+	return credentialPathFor(runtime.GOOS)
+}
+
+// credentialPathFor returns the Codex auth store's default location for goos.
+// It is the only place in this package a default path is decided, and the
+// platform is passed in (runtime.GOOS in production) so every platform's
+// answer is testable from any host.
+//
+// The layout is the same everywhere — auth.json in .codex under the home
+// directory — so only the home directory itself is per-OS:
+//
+//	Windows        %USERPROFILE%\.codex\auth.json
+//	macOS, Linux   $HOME/.codex/auth.json
+//
+// filepath.Join supplies the separator, so the Windows form above is what a
+// Windows build produces, not a string spelled out here.
+func credentialPathFor(goos string) (string, error) {
+	home, err := homeDirFor(goos)
 	if err != nil {
 		return "", fmt.Errorf("home directory: %w", err)
 	}
 	return filepath.Join(home, ".codex", "auth.json"), nil
+}
+
+// homeDirFor returns the home directory goos keeps credentials under:
+// %USERPROFILE% on Windows, $HOME everywhere else. os.UserHomeDir already
+// reads exactly those variables per platform, so this only makes the choice
+// explicit and injectable — it is what lets a Linux CI runner assert the
+// Windows path — and os.UserHomeDir remains the fallback (and the source of
+// the "home directory unknown" error) whenever the variable is unset.
+func homeDirFor(goos string) (string, error) {
+	env := "HOME"
+	if goos == windowsGOOS {
+		env = "USERPROFILE"
+	}
+	if dir := os.Getenv(env); dir != "" {
+		return dir, nil
+	}
+	return os.UserHomeDir()
 }
 
 // resolveCredential runs the credential lookup order: the QMETER_CODEX_TOKEN
