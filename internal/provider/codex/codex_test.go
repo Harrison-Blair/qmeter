@@ -520,7 +520,7 @@ func assertWindows(t *testing.T, got, want []provider.Window) {
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.Provider != w.Provider || g.Name != w.Name || g.Plan != w.Plan ||
-			g.UsedPercent != w.UsedPercent || g.Period != w.Period ||
+			g.RemainingPercent != w.RemainingPercent || g.Period != w.Period ||
 			g.RateLimited != w.RateLimited || !g.ResetsAt.Equal(w.ResetsAt) {
 			t.Errorf("window %d =\n  %+v\nwant\n  %+v", i, g, w)
 		}
@@ -539,20 +539,20 @@ func TestFetch_ParsesSnakeCaseFields(t *testing.T) {
 
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "codex",
-			Name:        "5h",
-			Plan:        "plus",
-			UsedPercent: 42.5,
-			ResetsAt:    time.Date(2026, time.September, 16, 18, 30, 0, 0, time.UTC),
-			Period:      5 * time.Hour,
+			Provider:         "codex",
+			Name:             "5h",
+			Plan:             "plus",
+			RemainingPercent: 57.5,
+			ResetsAt:         time.Date(2026, time.September, 16, 18, 30, 0, 0, time.UTC),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "weekly",
-			Plan:        "plus",
-			UsedPercent: 18.25,
-			ResetsAt:    time.Date(2026, time.September, 19, 0, 0, 0, 0, time.UTC),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "codex",
+			Name:             "weekly",
+			Plan:             "plus",
+			RemainingPercent: 81.75,
+			ResetsAt:         time.Date(2026, time.September, 19, 0, 0, 0, 0, time.UTC),
+			Period:           7 * 24 * time.Hour,
 		},
 	})
 
@@ -582,19 +582,19 @@ func TestFetch_ParsesCamelCaseFields(t *testing.T) {
 
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "codex",
-			Name:        "5h",
-			Plan:        "pro",
-			UsedPercent: 99.5,
+			Provider:         "codex",
+			Name:             "5h",
+			Plan:             "pro",
+			RemainingPercent: 0.5,
 			// resetsInSeconds is relative to the injected clock.
 			ResetsAt: testNow.Add(time.Hour),
 			Period:   5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "weekly",
-			Plan:        "pro",
-			UsedPercent: 100,
+			Provider:         "codex",
+			Name:             "weekly",
+			Plan:             "pro",
+			RemainingPercent: 0,
 			// resetsAt given as an epoch rather than an ISO string.
 			ResetsAt:    time.Unix(1789500000, 0).UTC(),
 			Period:      7 * 24 * time.Hour,
@@ -615,36 +615,36 @@ func TestFetch_ParsesAdditionalRateLimits(t *testing.T) {
 
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "codex",
-			Name:        "5h",
-			Plan:        "pro",
-			UsedPercent: 10,
-			ResetsAt:    testNow.Add(10 * time.Minute),
-			Period:      5 * time.Hour,
+			Provider:         "codex",
+			Name:             "5h",
+			Plan:             "pro",
+			RemainingPercent: 90,
+			ResetsAt:         testNow.Add(10 * time.Minute),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "gpt-5-codex primary",
-			Plan:        "pro",
-			UsedPercent: 20,
-			ResetsAt:    testNow.Add(time.Minute),
-			Period:      5 * time.Hour,
+			Provider:         "codex",
+			Name:             "gpt-5-codex primary",
+			Plan:             "pro",
+			RemainingPercent: 80,
+			ResetsAt:         testNow.Add(time.Minute),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "gpt-5-codex secondary",
-			Plan:        "pro",
-			UsedPercent: 30,
-			ResetsAt:    testNow.Add(2 * time.Minute),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "codex",
+			Name:             "gpt-5-codex secondary",
+			Plan:             "pro",
+			RemainingPercent: 70,
+			ResetsAt:         testNow.Add(2 * time.Minute),
+			Period:           7 * 24 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "sora primary",
-			Plan:        "pro",
-			UsedPercent: 40,
-			ResetsAt:    testNow.Add(30 * time.Second),
-			Period:      24 * time.Hour,
+			Provider:         "codex",
+			Name:             "sora primary",
+			Plan:             "pro",
+			RemainingPercent: 60,
+			ResetsAt:         testNow.Add(30 * time.Second),
+			Period:           24 * time.Hour,
 		},
 	})
 }
@@ -968,37 +968,37 @@ func TestFetch_ParsesLiveResponseShape(t *testing.T) {
 
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "codex",
-			Name:        "5h",
-			Plan:        "pro",
-			UsedPercent: 12.5,
-			ResetsAt:    time.Unix(1789500000, 0).UTC(),
-			Period:      5 * time.Hour,
+			Provider:         "codex",
+			Name:             "5h",
+			Plan:             "pro",
+			RemainingPercent: 87.5,
+			ResetsAt:         time.Unix(1789500000, 0).UTC(),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "gpt-5-codex primary",
-			Plan:        "pro",
-			UsedPercent: 20,
-			ResetsAt:    time.Unix(1789490000, 0).UTC(),
-			Period:      5 * time.Hour,
+			Provider:         "codex",
+			Name:             "gpt-5-codex primary",
+			Plan:             "pro",
+			RemainingPercent: 80,
+			ResetsAt:         time.Unix(1789490000, 0).UTC(),
+			Period:           5 * time.Hour,
 		},
 		{
-			Provider:    "codex",
-			Name:        "gpt-5-codex secondary",
-			Plan:        "pro",
-			UsedPercent: 30,
-			ResetsAt:    time.Unix(1789900000, 0).UTC(),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "codex",
+			Name:             "gpt-5-codex secondary",
+			Plan:             "pro",
+			RemainingPercent: 70,
+			ResetsAt:         time.Unix(1789900000, 0).UTC(),
+			Period:           7 * 24 * time.Hour,
 		},
 		{
 			// limit_name is empty here, so the metered feature names it.
-			Provider:    "codex",
-			Name:        "code_review primary",
-			Plan:        "pro",
-			UsedPercent: 5,
-			ResetsAt:    time.Unix(1789600000, 0).UTC(),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "codex",
+			Name:             "code_review primary",
+			Plan:             "pro",
+			RemainingPercent: 95,
+			ResetsAt:         time.Unix(1789600000, 0).UTC(),
+			Period:           7 * 24 * time.Hour,
 		},
 	})
 
@@ -1034,12 +1034,12 @@ func TestFetch_LiveWindowFallsBackToResetAfterSeconds(t *testing.T) {
 	}
 	assertWindows(t, got, []provider.Window{
 		{
-			Provider:    "codex",
-			Name:        "weekly",
-			Plan:        "plus",
-			UsedPercent: 42,
-			ResetsAt:    testNow.Add(15 * time.Minute),
-			Period:      7 * 24 * time.Hour,
+			Provider:         "codex",
+			Name:             "weekly",
+			Plan:             "plus",
+			RemainingPercent: 58,
+			ResetsAt:         testNow.Add(15 * time.Minute),
+			Period:           7 * 24 * time.Hour,
 		},
 	})
 }
@@ -1075,20 +1075,20 @@ func TestFetch_ReferenceSpellingWinsWhenBothArePresent(t *testing.T) {
 		}
 		assertWindows(t, got, []provider.Window{
 			{
-				Provider:    "codex",
-				Name:        "5h", // window_minutes 300, not limit_window_seconds 604800
-				Plan:        "pro",
-				UsedPercent: 10,
-				ResetsAt:    time.Date(2026, time.September, 16, 18, 30, 0, 0, time.UTC),
-				Period:      5 * time.Hour,
+				Provider:         "codex",
+				Name:             "5h", // window_minutes 300, not limit_window_seconds 604800
+				Plan:             "pro",
+				RemainingPercent: 90,
+				ResetsAt:         time.Date(2026, time.September, 16, 18, 30, 0, 0, time.UTC),
+				Period:           5 * time.Hour,
 			},
 			{
-				Provider:    "codex",
-				Name:        "reference-name primary", // not limit_name, not metered_feature
-				Plan:        "pro",
-				UsedPercent: 20, // the entry's own window, not the nested one
-				ResetsAt:    testNow.Add(30 * time.Second),
-				Period:      5 * time.Hour,
+				Provider:         "codex",
+				Name:             "reference-name primary", // not limit_name, not metered_feature
+				Plan:             "pro",
+				RemainingPercent: 80, // the entry's own window, not the nested one
+				ResetsAt:         testNow.Add(30 * time.Second),
+				Period:           5 * time.Hour,
 			},
 		})
 		if t.Failed() {

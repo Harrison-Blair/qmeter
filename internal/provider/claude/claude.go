@@ -359,12 +359,12 @@ func windowsFrom(body map[string]json.RawMessage, plan string) []provider.Window
 			continue // a window qmeter cannot read is skipped, not fatal
 		}
 		window := provider.Window{
-			Provider:    providerID,
-			Name:        kw.name,
-			Plan:        plan,
-			UsedPercent: *payload.Utilization,
-			ResetsAt:    payload.ResetsAt.Time,
-			Period:      kw.period,
+			Provider:         providerID,
+			Name:             kw.name,
+			Plan:             plan,
+			RemainingPercent: provider.RemainingFromUsed(*payload.Utilization),
+			ResetsAt:         payload.ResetsAt.Time,
+			Period:           kw.period,
 		}
 		out = append(out, window)
 		seen.recordDocumented(window)
@@ -418,12 +418,12 @@ func scopedWindows(body map[string]json.RawMessage, plan string, seen *emitted) 
 				continue
 			}
 			window := provider.Window{
-				Provider:    providerID,
-				Name:        seen.uniqueName(name),
-				Plan:        plan,
-				UsedPercent: *limit.Percent,
-				ResetsAt:    limit.ResetsAt.Time,
-				Period:      limit.period(),
+				Provider:         providerID,
+				Name:             seen.uniqueName(name),
+				Plan:             plan,
+				RemainingPercent: provider.RemainingFromUsed(*limit.Percent),
+				ResetsAt:         limit.ResetsAt.Time,
+				Period:           limit.period(),
 			}
 			out = append(out, window)
 			seen.recordName(window.Name)
