@@ -514,8 +514,8 @@ func TestFetch_ParsesRouteAResponse(t *testing.T) {
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	want := []provider.Window{
-		{Provider: "cursor", Name: "total", Plan: "free", UsedPercent: 4.5, ResetsAt: end, Period: end.Sub(start)},
-		{Provider: "cursor", Name: "auto", Plan: "free", UsedPercent: 2.1, ResetsAt: end, Period: end.Sub(start)},
+		{Provider: "cursor", Name: "total", Plan: "free", RemainingPercent: 95.5, ResetsAt: end, Period: end.Sub(start)},
+		{Provider: "cursor", Name: "auto", Plan: "free", RemainingPercent: 97.9, ResetsAt: end, Period: end.Sub(start)},
 	}
 	assertWindows(t, windows, want)
 }
@@ -555,8 +555,8 @@ func TestFetch_EmitsTotalAndAutoWindows(t *testing.T) {
 	start := time.Date(2026, 8, 15, 12, 30, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 15, 12, 30, 0, 0, time.UTC)
 	want := []provider.Window{
-		{Provider: "cursor", Name: "total", Plan: "pro", UsedPercent: 71.25, ResetsAt: end, Period: end.Sub(start)},
-		{Provider: "cursor", Name: "auto", Plan: "pro", UsedPercent: 45, ResetsAt: end, Period: end.Sub(start)},
+		{Provider: "cursor", Name: "total", Plan: "pro", RemainingPercent: 28.75, ResetsAt: end, Period: end.Sub(start)},
+		{Provider: "cursor", Name: "auto", Plan: "pro", RemainingPercent: 55, ResetsAt: end, Period: end.Sub(start)},
 	}
 	assertWindows(t, windows, want)
 
@@ -579,24 +579,24 @@ func TestFetch_ToleratesEmptyTeamUsageObject(t *testing.T) {
 			name:    "teamUsage is an empty object on a personal account",
 			fixture: "usage_summary_free.json",
 			want: []provider.Window{
-				{Provider: "cursor", Name: "total", Plan: "free", UsedPercent: 4.5},
-				{Provider: "cursor", Name: "auto", Plan: "free", UsedPercent: 2.1},
+				{Provider: "cursor", Name: "total", Plan: "free", RemainingPercent: 95.5},
+				{Provider: "cursor", Name: "auto", Plan: "free", RemainingPercent: 97.9},
 			},
 		},
 		{
 			name:    "teamUsage is populated on a team account",
 			fixture: "usage_summary_pro_team.json",
 			want: []provider.Window{
-				{Provider: "cursor", Name: "total", Plan: "pro", UsedPercent: 71.25},
-				{Provider: "cursor", Name: "auto", Plan: "pro", UsedPercent: 45},
+				{Provider: "cursor", Name: "total", Plan: "pro", RemainingPercent: 28.75},
+				{Provider: "cursor", Name: "auto", Plan: "pro", RemainingPercent: 55},
 			},
 		},
 		{
 			name:    "nulls and unknown fields throughout",
 			fixture: "usage_summary_nulls.json",
 			want: []provider.Window{
-				{Provider: "cursor", Name: "total", Plan: "free", UsedPercent: 12.5},
-				{Provider: "cursor", Name: "auto", Plan: "free", UsedPercent: 10},
+				{Provider: "cursor", Name: "total", Plan: "free", RemainingPercent: 87.5},
+				{Provider: "cursor", Name: "auto", Plan: "free", RemainingPercent: 90},
 			},
 		},
 	}
@@ -611,9 +611,9 @@ func TestFetch_ToleratesEmptyTeamUsageObject(t *testing.T) {
 				t.Fatalf("Fetch() returned %d windows, want %d: %+v", len(windows), len(tt.want), windows)
 			}
 			for i, w := range tt.want {
-				if windows[i].Name != w.Name || windows[i].Plan != w.Plan || windows[i].UsedPercent != w.UsedPercent {
-					t.Errorf("window %d = {Name:%q Plan:%q UsedPercent:%v}, want {Name:%q Plan:%q UsedPercent:%v}",
-						i, windows[i].Name, windows[i].Plan, windows[i].UsedPercent, w.Name, w.Plan, w.UsedPercent)
+				if windows[i].Name != w.Name || windows[i].Plan != w.Plan || windows[i].RemainingPercent != w.RemainingPercent {
+					t.Errorf("window %d = {Name:%q Plan:%q RemainingPercent:%v}, want {Name:%q Plan:%q RemainingPercent:%v}",
+						i, windows[i].Name, windows[i].Plan, windows[i].RemainingPercent, w.Name, w.Plan, w.RemainingPercent)
 				}
 			}
 		})
@@ -720,7 +720,8 @@ func TestFetch_MissingPercentagesError(t *testing.T) {
 	}
 }
 
-// A zero percentage that IS reported must still come through as 0.
+// A zero used percentage that IS reported must come through as a full 100%
+// remaining, rather than being dropped as if it were absent.
 func TestFetch_ZeroPercentagesAreReported(t *testing.T) {
 	t.Setenv(envToken, "")
 	store, _ := storeFor(t, "auth0|fresh-cycle")
@@ -734,8 +735,8 @@ func TestFetch_ZeroPercentagesAreReported(t *testing.T) {
 		t.Fatalf("Fetch() returned %d windows, want 2", len(windows))
 	}
 	for _, w := range windows {
-		if w.UsedPercent != 0 {
-			t.Errorf("window %q UsedPercent = %v, want 0", w.Name, w.UsedPercent)
+		if w.RemainingPercent != 100 {
+			t.Errorf("window %q RemainingPercent = %v, want 100", w.Name, w.RemainingPercent)
 		}
 	}
 }
@@ -787,8 +788,8 @@ func TestFetch_UnparsableBillingCycleKeepsThePercentages(t *testing.T) {
 					t.Errorf("window %q Period = %v, want 0", w.Name, w.Period)
 				}
 			}
-			if windows[0].UsedPercent != 4 || windows[1].UsedPercent != 1.5 {
-				t.Errorf("percentages = %v, %v, want 4 and 1.5", windows[0].UsedPercent, windows[1].UsedPercent)
+			if windows[0].RemainingPercent != 96 || windows[1].RemainingPercent != 98.5 {
+				t.Errorf("percentages = %v, %v, want 96 and 98.5", windows[0].RemainingPercent, windows[1].RemainingPercent)
 			}
 		})
 	}
@@ -899,7 +900,7 @@ func assertWindows(t *testing.T, got, want []provider.Window) {
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.Provider != w.Provider || g.Name != w.Name || g.Plan != w.Plan ||
-			g.UsedPercent != w.UsedPercent || !g.ResetsAt.Equal(w.ResetsAt) ||
+			g.RemainingPercent != w.RemainingPercent || !g.ResetsAt.Equal(w.ResetsAt) ||
 			g.Period != w.Period || g.RateLimited != w.RateLimited {
 			t.Errorf("window %d =\n\t%+v\nwant\n\t%+v", i, g, w)
 		}

@@ -74,9 +74,15 @@ clear it too.
   - [ ] Plain `qmeter usage` with several of them logged in prints the providers
     in registry order (claude, codex, opencode-go, cursor), windows in each
     provider's own order, and undetected providers not at all.
-- [ ] **Percentages are plausible.** Cross-check one provider's number against
-  the vendor's own UI. A number that is off by 100x means a percent/fraction
-  mix-up that no fixture would catch.
+- [ ] **Percentages are plausible, and they are REMAINING.** The `REMAINING`
+  column (and the `remaining_percent` JSON key) is how much of the window is
+  left, not how much has been spent: 0.0% is a window with nothing left, 100.0%
+  one that is untouched, and a rate-limited window reads 0.0%. Cross-check one
+  provider's number against the vendor's own UI, where it should be 100 minus
+  the used percentage that UI shows. A number that matches the vendor's used
+  figure instead of its complement means the remaining conversion was lost, and
+  one that is off by 100x means a percent/fraction mix-up — neither is something
+  a fixture would catch.
 - [ ] **`go install` produces `qmeter`.** From the repo root, `go install .`
   writes a binary named exactly `qmeter` (not `cmd`) into
   `$(go env GOPATH)/bin`; check with `ls "$(go env GOPATH)/bin/qmeter"` and run

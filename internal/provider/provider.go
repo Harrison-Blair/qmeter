@@ -17,36 +17,36 @@ import (
 // Window is one normalized usage window for a provider (e.g. a 5-hour
 // rolling window, a weekly window, a monthly window).
 type Window struct {
-	Provider    string        // wire form: "provider" (see MarshalJSON, not struct tags)
-	Name        string        // "name"; e.g. "5h", "weekly", "monthly", "sonnet weekly"
-	Plan        string        // "plan", omitted when empty
-	UsedPercent float64       // "used_percent"
-	ResetsAt    time.Time     // "resets_at" (RFC3339), omitted when zero
-	Period      time.Duration // "period_seconds" (whole seconds), omitted when zero
-	RateLimited bool          // "rate_limited"
+	Provider         string        // wire form: "provider" (see MarshalJSON, not struct tags)
+	Name             string        // "name"; e.g. "5h", "weekly", "monthly", "sonnet weekly"
+	Plan             string        // "plan", omitted when empty
+	RemainingPercent float64       // "remaining_percent"; 0 = nothing left, 100 = untouched
+	ResetsAt         time.Time     // "resets_at" (RFC3339), omitted when zero
+	Period           time.Duration // "period_seconds" (whole seconds), omitted when zero
+	RateLimited      bool          // "rate_limited"
 }
 
 // MarshalJSON is Window's wire-form encoder (not struct tags — time.Time and
 // time.Duration don't serialize the way tags would imply). It emits
-// "provider", "name", "plan" (omitted when empty), "used_percent",
+// "provider", "name", "plan" (omitted when empty), "remaining_percent",
 // "resets_at" (RFC3339, omitted when ResetsAt.IsZero()), "period_seconds"
 // (int64(Period / time.Second), omitted when zero), and "rate_limited"
 // (always present).
 func (w Window) MarshalJSON() ([]byte, error) {
 	wire := struct {
-		Provider      string  `json:"provider"`
-		Name          string  `json:"name"`
-		Plan          string  `json:"plan,omitempty"`
-		UsedPercent   float64 `json:"used_percent"`
-		ResetsAt      string  `json:"resets_at,omitempty"`
-		PeriodSeconds int64   `json:"period_seconds,omitempty"`
-		RateLimited   bool    `json:"rate_limited"`
+		Provider         string  `json:"provider"`
+		Name             string  `json:"name"`
+		Plan             string  `json:"plan,omitempty"`
+		RemainingPercent float64 `json:"remaining_percent"`
+		ResetsAt         string  `json:"resets_at,omitempty"`
+		PeriodSeconds    int64   `json:"period_seconds,omitempty"`
+		RateLimited      bool    `json:"rate_limited"`
 	}{
-		Provider:    w.Provider,
-		Name:        w.Name,
-		Plan:        w.Plan,
-		UsedPercent: w.UsedPercent,
-		RateLimited: w.RateLimited,
+		Provider:         w.Provider,
+		Name:             w.Name,
+		Plan:             w.Plan,
+		RemainingPercent: w.RemainingPercent,
+		RateLimited:      w.RateLimited,
 	}
 	if !w.ResetsAt.IsZero() {
 		wire.ResetsAt = w.ResetsAt.Format(time.RFC3339)
@@ -145,4 +145,23 @@ func (e ErrRateLimited) Error() string {
 func (e ErrRateLimited) Is(target error) bool {
 	_, ok := target.(ErrRateLimited)
 	return ok
+}
+
+// RemainingFromUsed converts a vendor's used/utilization percentage into the
+// remaining percentage every Window carries (Window.RemainingPercent: 0 =
+// nothing left, 100 = untouched).
+//
+// The result is clamped to [0, 100] so a vendor that reports more than 100%
+// used — an over-quota account, or a percentage that momentarily overshoots —
+// never renders as a negative remainder, and one that reports a negative used
+// never renders as more than a full window.
+func RemainingFromUsed(used float64) float64 {
+	remaining := 100 - used
+	if remaining < 0 {
+		return 0
+	}
+	if remaining > 100 {
+		return 100
+	}
+	return remaining
 }

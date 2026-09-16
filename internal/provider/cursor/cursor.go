@@ -233,20 +233,20 @@ func (s usageSummary) windows(id string) ([]provider.Window, error) {
 	resetsAt, period := s.billingCycle()
 	return []provider.Window{
 		{
-			Provider:    id,
-			Name:        "total",
-			Plan:        s.MembershipType,
-			UsedPercent: *plan.TotalPercentUsed,
-			ResetsAt:    resetsAt,
-			Period:      period,
+			Provider:         id,
+			Name:             "total",
+			Plan:             s.MembershipType,
+			RemainingPercent: provider.RemainingFromUsed(*plan.TotalPercentUsed),
+			ResetsAt:         resetsAt,
+			Period:           period,
 		},
 		{
-			Provider:    id,
-			Name:        "auto",
-			Plan:        s.MembershipType,
-			UsedPercent: *plan.AutoPercentUsed,
-			ResetsAt:    resetsAt,
-			Period:      period,
+			Provider:         id,
+			Name:             "auto",
+			Plan:             s.MembershipType,
+			RemainingPercent: provider.RemainingFromUsed(*plan.AutoPercentUsed),
+			ResetsAt:         resetsAt,
+			Period:           period,
 		},
 	}, nil
 }
