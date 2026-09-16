@@ -28,7 +28,9 @@ generated notes, and cross-compiled archives. The version comes from the git tag
 the first release is `v0.1.0`, and every later merge bumps the minor and resets the patch
 (`v1.4.7` → `v1.5.0`), as implemented by `.github/scripts/next-version.sh`. No version is
 stored in the repo and nothing is ever committed back to `main`; if the merged commit is
-already tagged, the release is skipped.
+already tagged, the release is skipped. The version rule is covered by
+`bash .github/scripts/next-version_test.sh`, which `.github/workflows/test.yml` runs
+alongside the Go tests, so it gates both pull requests and releases.
 
 ## Test-driven development
 
