@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/Harrison-Blair/qmeter/cmd/dash"
 	"github.com/Harrison-Blair/qmeter/cmd/update"
 	"github.com/Harrison-Blair/qmeter/cmd/usage"
 	"github.com/Harrison-Blair/qmeter/cmd/version"
@@ -17,9 +18,11 @@ var cleanupOld = iupdate.CleanupOld
 // NewRootCmd builds the root command and registers every subcommand.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:          "qmeter",
-		Short:        "See your AI subscription usage limits",
-		Long:         "qmeter is a CLI tool to see your AI subscription usage limits.",
+		Use:   "qmeter",
+		Short: "See your AI subscription usage limits",
+		Long: "qmeter is a CLI tool to see your AI subscription usage limits.\n\n" +
+			"With no subcommand it opens the live dashboard; piped or with\n" +
+			"--json it prints what `qmeter usage` prints.",
 		SilenceUsage: true,
 		// Windows cannot replace a running image, so `qmeter update`
 		// leaves the previous binary beside the new one. Every later run
@@ -34,6 +37,11 @@ func NewRootCmd() *cobra.Command {
 	// --json is persistent so every subcommand that has a machine-readable
 	// form reads the same flag; cmd/usage is the first.
 	root.PersistentFlags().Bool("json", false, "output JSON instead of text")
+
+	// The root command's own behaviour — the dashboard, --filter and
+	// --no-banner — is wired by cmd/dash, after the persistent flags it
+	// reads and before the subcommands it must not shadow.
+	dash.Attach(root)
 
 	root.AddCommand(usage.New())
 	root.AddCommand(version.New())
