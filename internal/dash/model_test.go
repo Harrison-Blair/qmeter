@@ -127,6 +127,18 @@ func viewLines(t *testing.T, m Model) []string {
 	return strings.Split(m.View(), "\n")
 }
 
+// windowIDs is the providers a result carries windows for, in order and
+// without repeats, as one comparable string.
+func windowIDs(res usage.Result) string {
+	var ids []string
+	for _, w := range res.Windows {
+		if len(ids) == 0 || ids[len(ids)-1] != w.Provider {
+			ids = append(ids, w.Provider)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
 func pageOf(t *testing.T, res usage.Result, w int, showBanner bool) []string {
 	t.Helper()
 	return layout.Render(res, w, layout.Options{Banner: showBanner, Now: now})
@@ -212,6 +224,43 @@ func TestView_ScrollClampsAtBothEnds(t *testing.T) {
 	m, _ = press(t, m, "G")
 	if m.offset != bottom {
 		t.Errorf("G left offset %d, want %d", m.offset, bottom)
+	}
+}
+
+func TestView_PageScrollMovesExactlyOneScreenful(t *testing.T) {
+	// 40x12 with the banner: 6 header rows and one footer row leave 5 body
+	// rows on screen, so a page is 5 — not half of one, and not one row of
+	// overlap.
+	const w, h = 40, 12
+	const visible = h - banner.Height - 1
+	body := pageOf(t, sample(), w, true)[banner.Height:]
+	if len(body) <= 2*visible {
+		t.Fatalf("the sample body is %d rows at %dx%d, too short to page through", len(body), w, h)
+	}
+
+	for _, key := range []string{"pgdown", " "} {
+		m := shown(t, true, sample(), w, h)
+		m, _ = press(t, m, key)
+		if m.offset != visible {
+			t.Errorf("%q from the top left offset %d, want %d", key, m.offset, visible)
+		}
+		m, _ = press(t, m, key)
+		if m.offset != 2*visible {
+			t.Errorf("%q twice left offset %d, want %d", key, m.offset, 2*visible)
+		}
+	}
+
+	for _, key := range []string{"pgup", "b"} {
+		m := shown(t, true, sample(), w, h)
+		m, _ = press(t, m, "pgdown", "pgdown")
+		m, _ = press(t, m, key)
+		if m.offset != visible {
+			t.Errorf("%q left offset %d, want %d", key, m.offset, visible)
+		}
+		m, _ = press(t, m, key)
+		if m.offset != 0 {
+			t.Errorf("%q back to the top left offset %d, want 0", key, m.offset)
+		}
 	}
 }
 
@@ -339,10 +388,15 @@ func TestUpdate_QuitKeys(t *testing.T) {
 }
 
 func TestUpdate_RRefetches(t *testing.T) {
+	// Two providers, with different IDs: a refresh fetches every provider
+	// the model was given, never one singled out by name.
 	fake := providertest.Succeeding("claude", []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 50},
 	})
-	m := newModel(t, true, fake)
+	other := providertest.Succeeding("codex", []provider.Window{
+		{Provider: "codex", Name: "weekly", Plan: "pro", RemainingPercent: 30},
+	})
+	m := newModel(t, true, fake, other)
 	m = resize(t, m, 80, 24)
 	m, _ = step(t, m, resultMsg{res: sample()})
 
@@ -364,11 +418,11 @@ func TestUpdate_RRefetches(t *testing.T) {
 	if !ok {
 		t.Fatalf("the fetch produced %T, want a resultMsg", cmd())
 	}
-	if len(msg.res.Windows) != 1 || msg.res.Windows[0].RemainingPercent != 50 {
-		t.Fatalf("the fetch returned %+v, want the fake's one window", msg.res.Windows)
+	if got := windowIDs(msg.res); got != "claude,codex" {
+		t.Fatalf("the fetch returned windows for %q, want claude,codex", got)
 	}
-	if fake.Fetches() != 1 {
-		t.Errorf("the provider was fetched %d times, want 1", fake.Fetches())
+	if fake.Fetches() != 1 || other.Fetches() != 1 {
+		t.Errorf("providers were fetched %d and %d times, want 1 each", fake.Fetches(), other.Fetches())
 	}
 
 	// A second r while the first is still in flight is ignored.
@@ -406,16 +460,24 @@ func TestInit_StartsAFetch(t *testing.T) {
 	fake := providertest.Succeeding("claude", []provider.Window{
 		{Provider: "claude", Name: "5h", RemainingPercent: 10},
 	})
-	m := newModel(t, true, fake)
+	other := providertest.Succeeding("cursor", []provider.Window{
+		{Provider: "cursor", Name: "total", RemainingPercent: 20},
+	})
+	m := newModel(t, true, fake, other)
 	cmd := m.Init()
 	if cmd == nil {
 		t.Fatal("Init returned no command, want a fetch")
 	}
-	if _, ok := cmd().(resultMsg); !ok {
+	msg, ok := cmd().(resultMsg)
+	if !ok {
 		t.Fatalf("Init's command produced %T, want a resultMsg", cmd())
 	}
-	if fake.Fetches() != 1 {
-		t.Errorf("the provider was fetched %d times, want 1", fake.Fetches())
+	// Every provider, not a single one picked by name.
+	if got := windowIDs(msg.res); got != "claude,cursor" {
+		t.Fatalf("Init fetched windows for %q, want claude,cursor", got)
+	}
+	if fake.Fetches() != 1 || other.Fetches() != 1 {
+		t.Errorf("providers were fetched %d and %d times, want 1 each", fake.Fetches(), other.Fetches())
 	}
 }
 

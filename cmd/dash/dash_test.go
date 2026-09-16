@@ -14,6 +14,7 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
 	iupdate "github.com/Harrison-Blair/qmeter/internal/update"
+	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
 
 // testRoot is a root command shaped like cmd/root.go — the persistent
@@ -227,6 +228,9 @@ func TestCmd_TerminalRunsTheDashboard(t *testing.T) {
 	if len(tr.hints) != 1 {
 		t.Fatalf("the update hint ran %d times after the dashboard, want 1", len(tr.hints))
 	}
+	if tr.hints[0] != tr.errOut {
+		t.Error("the hint was not written to stderr")
+	}
 }
 
 func TestCmd_NoBannerReachesTheDashboard(t *testing.T) {
@@ -287,6 +291,16 @@ func TestCmd_RejectsArguments(t *testing.T) {
 	}
 	if len(tr.runs) != 0 {
 		t.Error("the dashboard ran for an unknown command")
+	}
+}
+
+func TestCmd_ValidProvidersMatchesTheRealRegistry(t *testing.T) {
+	// The constant is what --filter's help text offers and what its error
+	// calls valid, so a provider added to (or renamed in) the registry must
+	// show up here too.
+	want := strings.Join(providerIDs(usage.Registry()), ", ")
+	if validProviders != want {
+		t.Fatalf("validProviders = %q, want %q", validProviders, want)
 	}
 }
 
