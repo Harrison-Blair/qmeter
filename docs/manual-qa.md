@@ -22,7 +22,7 @@ Status:
   by string comparison from a Linux runner (`paths_test.go` in each provider
   package). No part of qmeter has been run on Windows.
 
-Build the binary first — `go build -o qmeter ./cmd` — and run the checklist
+Build the binary first — `go build -o qmeter .` — and run the checklist
 against that binary, not `go run`, so the `.exe`/permissions questions on
 Windows are actually exercised.
 
@@ -77,6 +77,10 @@ clear it too.
 - [ ] **Percentages are plausible.** Cross-check one provider's number against
   the vendor's own UI. A number that is off by 100x means a percent/fraction
   mix-up that no fixture would catch.
+- [ ] **`go install` produces `qmeter`.** From the repo root, `go install .`
+  writes a binary named exactly `qmeter` (not `cmd`) into
+  `$(go env GOPATH)/bin`; check with `ls "$(go env GOPATH)/bin/qmeter"` and run
+  `qmeter version`.
 
 ## macOS
 
@@ -125,7 +129,7 @@ possible.
 - [ ] **`%USERPROFILE%` is what is actually read.** Point `%USERPROFILE%` at a
   scratch directory holding a copy of one store, run `qmeter usage --provider
   <that one>`, and confirm the copy is what was read.
-- [ ] **The `.exe` runs.** `go build -o qmeter.exe ./cmd`; `.\qmeter.exe version`
+- [ ] **The `.exe` runs.** `go build -o qmeter.exe .`; `.\qmeter.exe version`
   and `.\qmeter.exe usage` both run from PowerShell and from `cmd.exe`, with no
   missing-DLL or SmartScreen blocker worth documenting.
 - [ ] **No Keychain path is taken.** The macOS Keychain source is gated on
