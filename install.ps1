@@ -60,12 +60,51 @@ if (-not $Arch) {
 }
 
 function Get-HeaderValue($Headers, [string]$Name) {
-    # Headers are a string dictionary in 5.1 and a string[] dictionary in 7+.
+    # Header collections differ by runtime: Windows PowerShell 5.1 hands back a
+    # Dictionary[string,string] with a string indexer, PowerShell 7 an
+    # HttpResponseHeaders, which has no string indexer at all and answers
+    # GetValues instead. Try each shape and let the ones that do not apply fail.
     if (-not $Headers) { return $null }
     $value = $null
     try { $value = $Headers[$Name] } catch { $value = $null }
-    if ($value -is [array]) { $value = $value[0] }
+    if (-not $value) {
+        try { $value = $Headers.$Name } catch { $value = $null }
+    }
+    if (-not $value) {
+        try { $value = $Headers.GetValues($Name) } catch { $value = $null }
+    }
+    if ($value -is [array]) {
+        if ($value.Count -lt 1) { return $null }
+        $value = $value[0]
+    }
     return $value
+}
+
+function Get-TagFromUrl([string]$Url) {
+    if (-not $Url) { return '' }
+    $marker = '/releases/tag/'
+    $index = $Url.IndexOf($marker)
+    if ($index -lt 0) { return '' }
+    $tag = $Url.Substring($index + $marker.Length)
+    return ($tag -split '[/?#]')[0]
+}
+
+function Get-FinalUri($Response) {
+    # Where the request actually ended up, for the case where the redirect was
+    # followed in spite of -MaximumRedirection 0. ResponseUri belongs to 5.1's
+    # HttpWebResponse, RequestMessage.RequestUri to 7's HttpResponseMessage,
+    # and either can be wrapped in a web response object or raw.
+    if (-not $Response) { return '' }
+    foreach ($path in @(
+            { $Response.BaseResponse.ResponseUri.AbsoluteUri },
+            { $Response.BaseResponse.RequestMessage.RequestUri.AbsoluteUri },
+            { $Response.ResponseUri.AbsoluteUri },
+            { $Response.RequestMessage.RequestUri.AbsoluteUri })) {
+        $uri = $null
+        try { $uri = & $path } catch { $uri = $null }
+        if ($uri) { return [string]$uri }
+    }
+    return ''
 }
 
 function Get-LatestTag([string]$Url) {
@@ -73,6 +112,7 @@ function Get-LatestTag([string]$Url) {
     # the Location header keeps this off the rate-limited REST API. With
     # -MaximumRedirection 0 some PowerShell versions return the 3xx response
     # and others raise it, so read the header out of either one.
+    $response = $null
     $location = $null
     try {
         $response = Invoke-WebRequest -Uri $Url -MaximumRedirection 0 -UseBasicParsing
@@ -84,18 +124,74 @@ function Get-LatestTag([string]$Url) {
             $location = Get-HeaderValue $response.Headers 'Location'
         }
     }
-    if (-not $location) { return '' }
-    $marker = '/releases/tag/'
-    $index = $location.IndexOf($marker)
-    if ($index -lt 0) { return '' }
-    $tag = $location.Substring($index + $marker.Length)
-    return ($tag -split '[/?#]')[0]
+    $tag = Get-TagFromUrl $location
+    if ($tag) { return $tag }
+    # No Location to read: if the redirect was followed anyway, the tag is
+    # still in the URI that was finally fetched.
+    return (Get-TagFromUrl (Get-FinalUri $response))
 }
 
 if (-not $Version) {
     $Version = Get-LatestTag "$BaseUrl/releases/latest"
     if (-not $Version) {
         Die "no qmeter release found at $BaseUrl/releases/latest -- if a release exists, set QMETER_VERSION to its tag, for example v0.1.0"
+    }
+}
+
+function Test-OnPath([string]$PathValue) {
+    # Is $InstallDir already one of the entries of a ';'-separated PATH?
+    $want = $InstallDir.TrimEnd('\').ToLowerInvariant()
+    foreach ($entry in ($PathValue -split ';')) {
+        $trimmed = $entry.Trim().TrimEnd('\')
+        if ($trimmed -and $trimmed.ToLowerInvariant() -eq $want) { return $true }
+    }
+    return $false
+}
+
+function Get-UserPath() {
+    # Read the user PATH out of the registry unexpanded. A typical user PATH is
+    # a REG_EXPAND_SZ holding entries like %USERPROFILE%\bin, and
+    # [Environment]::GetEnvironmentVariable would hand back an expanded copy --
+    # writing that back would freeze today's values into the registry forever.
+    $result = @{ Value = ''; Kind = 'ExpandString' }
+    $key = $null
+    try {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $false)
+        if (-not $key) { return $result }
+        $value = $key.GetValue(
+            'Path', '',
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $result.Value = [string]$value
+        try {
+            if ($key.GetValueKind('Path') -eq [Microsoft.Win32.RegistryValueKind]::String) {
+                # Only downgrade to a plain string when that is what is there
+                # already and nothing needs expanding.
+                $result.Kind = 'String'
+            }
+        } catch {
+            # No Path value yet: ExpandString is the right kind to create.
+        }
+    } catch {
+        Die "could not read your user PATH from HKCU:\Environment"
+    } finally {
+        if ($key) { $key.Close() }
+    }
+    return $result
+}
+
+function Set-UserPath([string]$Value, [string]$Kind) {
+    try {
+        Set-ItemProperty -Path 'HKCU:\Environment' -Name 'Path' -Value $Value -Type $Kind
+    } catch {
+        Die "could not add $InstallDir to your user PATH -- add it by hand"
+    }
+}
+
+function Get-Download([string]$Url, [string]$Dest) {
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+    } catch {
+        Die "could not download $Url -- check the tag $Version exists and that you are online"
     }
 }
 
@@ -111,12 +207,8 @@ try {
 
     $ArchivePath = Join-Path $Temp $Asset
     $ChecksumsPath = Join-Path $Temp 'checksums.txt'
-    try {
-        Invoke-WebRequest -Uri $AssetUrl -OutFile $ArchivePath -UseBasicParsing
-        Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $ChecksumsPath -UseBasicParsing
-    } catch {
-        Die "could not download $AssetUrl -- check the tag $Version exists and that you are online"
-    }
+    Get-Download $AssetUrl $ArchivePath
+    Get-Download $ChecksumsUrl $ChecksumsPath
 
     # checksums.txt is sha256sum format: "<hex>  <filename>".
     $want = ''
@@ -161,25 +253,22 @@ try {
     Say "Installed $Target"
 
     # Add the install directory to the user PATH only when it is missing.
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (-not $userPath) { $userPath = '' }
-    $onUserPath = $false
-    foreach ($entry in ($userPath -split ';')) {
-        if ($entry.Trim().TrimEnd('\') -and
-            $entry.Trim().TrimEnd('\').ToLowerInvariant() -eq $InstallDir.TrimEnd('\').ToLowerInvariant()) {
-            $onUserPath = $true
-            break
+    $userPath = Get-UserPath
+    if (-not (Test-OnPath $userPath.Value)) {
+        $newPath = if ($userPath.Value.TrimEnd(';')) {
+            $userPath.Value.TrimEnd(';') + ';' + $InstallDir
+        } else {
+            $InstallDir
         }
-    }
-    if (-not $onUserPath) {
-        $newPath = if ($userPath.TrimEnd(';')) { $userPath.TrimEnd(';') + ';' + $InstallDir } else { $InstallDir }
-        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+        Set-UserPath $newPath $userPath.Kind
         Say ''
         Say "Added $InstallDir to your user PATH. Open a new terminal for it to take effect."
         Say ''
     }
-    # Make qmeter runnable in this session either way.
-    $env:Path = $env:Path.TrimEnd(';') + ';' + $InstallDir
+    # Make qmeter runnable in this session too, without duplicating an entry.
+    if (-not (Test-OnPath $env:Path)) {
+        $env:Path = $env:Path.TrimEnd(';') + ';' + $InstallDir
+    }
 
     & $Target version
 } finally {
