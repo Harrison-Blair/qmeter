@@ -37,20 +37,54 @@ func makeJWT(t *testing.T, claims map[string]any) string {
 	}, ".")
 }
 
+// makePaddedJWT builds a JWT whose payload segment is standard, PADDED
+// base64url rather than the unpadded form the JWT spec calls for. Real
+// encoders differ, so the decoder accepts both; wantPad asserts how many "="
+// characters the segment actually ends with, so a subject whose length stops
+// producing padding fails the test instead of silently exercising the
+// unpadded path again.
+func makePaddedJWT(t *testing.T, sub string, wantPad int) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"sub": sub})
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	seg := base64.URLEncoding.EncodeToString(payload)
+	if got := len(seg) - len(strings.TrimRight(seg, "=")); got != wantPad {
+		t.Fatalf("payload segment %q carries %d padding characters, want %d: pick a subject of a different length", seg, got, wantPad)
+	}
+	return strings.Join([]string{
+		base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)),
+		seg,
+		base64.RawURLEncoding.EncodeToString([]byte("not-a-real-signature")),
+	}, ".")
+}
+
 func TestJWT_ParsesGoogleOAuth2AndAuth0Subjects(t *testing.T) {
 	tests := []struct {
 		name string
 		sub  string
+		// pad is how many "=" characters the payload segment must carry; 0
+		// means the unpadded (spec) encoding.
+		pad  int
 		want string
 	}{
 		{name: "google-oauth2 subject", sub: "google-oauth2|103512345678901234567", want: "103512345678901234567"},
 		{name: "auth0 subject", sub: "auth0|user_01ABCDEFGHIJKLMNOPQRSTUV", want: "user_01ABCDEFGHIJKLMNOPQRSTUV"},
 		{name: "last pipe wins", sub: "auth0|google-oauth2|103512345678901234567", want: "103512345678901234567"},
 		{name: "no pipe at all", sub: "1234567890", want: "1234567890"},
+		// {"sub":"<sub>"} is 10 bytes plus the subject, so a subject length
+		// of 0 mod 3 leaves two padding characters and 1 mod 3 leaves one.
+		{name: "padded payload, two pad characters", sub: "auth0|abc", pad: 2, want: "abc"},
+		{name: "padded payload, one pad character", sub: "google-oauth2|abcde", pad: 1, want: "abcde"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := userIDFromJWT(makeJWT(t, map[string]any{"sub": tt.sub, "exp": 1789000000}))
+			token := makeJWT(t, map[string]any{"sub": tt.sub, "exp": 1789000000})
+			if tt.pad > 0 {
+				token = makePaddedJWT(t, tt.sub, tt.pad)
+			}
+			got, err := userIDFromJWT(token)
 			if err != nil {
 				t.Fatalf("userIDFromJWT() error = %v, want nil", err)
 			}
@@ -586,42 +620,177 @@ func TestFetch_ToleratesEmptyTeamUsageObject(t *testing.T) {
 	}
 }
 
-func TestFetch_PlanDisabledReturnsNoWindowsAndNoError(t *testing.T) {
+func TestFetch_NoUsableIndividualPlanErrors(t *testing.T) {
 	t.Setenv(envToken, "")
-	srv, _ := serve(t, http.StatusOK, fixture(t, "usage_summary_plan_disabled.json"))
-	store, _ := storeFor(t, "auth0|unlimited")
+	store, _ := storeFor(t, "auth0|no-plan")
 
-	windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
-	if err != nil {
-		t.Fatalf("Fetch() error = %v, want nil: a disabled plan is not a failure", err)
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "plan.enabled is explicitly false",
+			body: fixture(t, "usage_summary_plan_disabled.json"),
+			want: `no individual plan usage for this account (membershipType "enterprise"); team and enterprise pooled usage is not read yet`,
+		},
+		{
+			name: "plan.enabled key is absent",
+			body: fixture(t, "usage_summary_plan_enabled_absent.json"),
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
+		{
+			name: "body is an empty object",
+			body: fixture(t, "usage_summary_empty_object.json"),
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
+		{
+			name: "body is JSON null",
+			body: `null`,
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
+		{
+			name: "plan.enabled is null",
+			body: `{"membershipType":"free","individualUsage":{"plan":{"enabled":null,"totalPercentUsed":4.5,"autoPercentUsed":2.1}}}`,
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
+		{
+			name: "individualUsage is null",
+			body: `{"membershipType":"free","individualUsage":null}`,
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
+		{
+			name: "individualUsage was renamed",
+			body: `{"membershipType":"free","individualUsageV2":{"plan":{"enabled":true,"totalPercentUsed":4.5,"autoPercentUsed":2.1}}}`,
+			want: "usage summary has no individualUsage.plan.enabled field; the response shape may have changed",
+		},
 	}
-	if len(windows) != 0 {
-		t.Errorf("Fetch() returned %d windows, want none when individualUsage.plan.enabled is false: %+v", len(windows), windows)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := serve(t, http.StatusOK, tt.body)
+
+			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			// Silently reporting "no usage" would read as a healthy account
+			// with nothing used; Fetch must never return (nil, nil).
+			if err == nil {
+				t.Fatalf("Fetch() = %+v, nil; want an error", windows)
+			}
+			if windows != nil {
+				t.Errorf("Fetch() windows = %+v, want nil alongside the error", windows)
+			}
+			if err.Error() != tt.want {
+				t.Errorf("Fetch() error = %q, want %q", err.Error(), tt.want)
+			}
+			assertNoSelfPrefix(t, err)
+		})
 	}
 }
 
-func TestFetch_MissingBillingCycleLeavesResetsAndPeriodZero(t *testing.T) {
+func TestFetch_MissingPercentagesError(t *testing.T) {
 	t.Setenv(envToken, "")
-	srv, _ := serve(t, http.StatusOK, fixture(t, "usage_summary_missing_cycle.json"))
-	store, _ := storeFor(t, "auth0|no-cycle")
+	store, _ := storeFor(t, "auth0|no-percentages")
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "both keys absent", body: fixture(t, "usage_summary_missing_percentages.json")},
+		{name: "totalPercentUsed absent", body: `{"membershipType":"free","individualUsage":{"plan":{"enabled":true,"autoPercentUsed":2.1}}}`},
+		{name: "autoPercentUsed absent", body: `{"membershipType":"free","individualUsage":{"plan":{"enabled":true,"totalPercentUsed":4.5}}}`},
+		{name: "both null", body: `{"membershipType":"free","individualUsage":{"plan":{"enabled":true,"totalPercentUsed":null,"autoPercentUsed":null}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := serve(t, http.StatusOK, tt.body)
+
+			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			// Rendering an absent percentage as 0.0% would read as "nothing
+			// used", the opposite of "we do not know".
+			if err == nil {
+				t.Fatalf("Fetch() = %+v, nil; want an error", windows)
+			}
+			if windows != nil {
+				t.Errorf("Fetch() windows = %+v, want nil alongside the error", windows)
+			}
+			if want := "usage summary is missing totalPercentUsed/autoPercentUsed"; err.Error() != want {
+				t.Errorf("Fetch() error = %q, want %q", err.Error(), want)
+			}
+			assertNoSelfPrefix(t, err)
+		})
+	}
+}
+
+// A zero percentage that IS reported must still come through as 0.
+func TestFetch_ZeroPercentagesAreReported(t *testing.T) {
+	t.Setenv(envToken, "")
+	store, _ := storeFor(t, "auth0|fresh-cycle")
+	srv, _ := serve(t, http.StatusOK, `{"membershipType":"pro","individualUsage":{"plan":{"enabled":true,"totalPercentUsed":0,"autoPercentUsed":0}}}`)
 
 	windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
 	if err != nil {
-		t.Fatalf("Fetch() error = %v, want nil: unparsable cycle bounds must not lose the percentages", err)
+		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
 	if len(windows) != 2 {
 		t.Fatalf("Fetch() returned %d windows, want 2", len(windows))
 	}
 	for _, w := range windows {
-		if !w.ResetsAt.IsZero() {
-			t.Errorf("window %q ResetsAt = %v, want the zero time", w.Name, w.ResetsAt)
-		}
-		if w.Period != 0 {
-			t.Errorf("window %q Period = %v, want 0", w.Name, w.Period)
+		if w.UsedPercent != 0 {
+			t.Errorf("window %q UsedPercent = %v, want 0", w.Name, w.UsedPercent)
 		}
 	}
-	if windows[0].UsedPercent != 4 || windows[1].UsedPercent != 1.5 {
-		t.Errorf("percentages = %v, %v, want 4 and 1.5", windows[0].UsedPercent, windows[1].UsedPercent)
+}
+
+func TestFetch_UnparsableBillingCycleKeepsThePercentages(t *testing.T) {
+	t.Setenv(envToken, "")
+	store, _ := storeFor(t, "auth0|no-cycle")
+	end := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		body string
+		// wantResetsAt is the zero time when the END bound is unusable; a
+		// usable end is still worth reporting even when the start is not.
+		wantResetsAt time.Time
+	}{
+		{
+			name: "both bounds unusable",
+			body: fixture(t, "usage_summary_missing_cycle.json"),
+		},
+		{
+			name:         "start unparsable, end good",
+			body:         fixture(t, "usage_summary_bad_start.json"),
+			wantResetsAt: end,
+		},
+		{
+			name:         "start not before end",
+			body:         `{"membershipType":"free","billingCycleStart":"2026-10-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","individualUsage":{"plan":{"enabled":true,"totalPercentUsed":4,"autoPercentUsed":1.5}}}`,
+			wantResetsAt: end,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := serve(t, http.StatusOK, tt.body)
+
+			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			if err != nil {
+				t.Fatalf("Fetch() error = %v, want nil: unusable cycle bounds must not lose the percentages", err)
+			}
+			if len(windows) != 2 {
+				t.Fatalf("Fetch() returned %d windows, want 2", len(windows))
+			}
+			for _, w := range windows {
+				if !w.ResetsAt.Equal(tt.wantResetsAt) {
+					t.Errorf("window %q ResetsAt = %v, want %v", w.Name, w.ResetsAt, tt.wantResetsAt)
+				}
+				// A period can only be computed from two usable bounds.
+				if w.Period != 0 {
+					t.Errorf("window %q Period = %v, want 0", w.Name, w.Period)
+				}
+			}
+			if windows[0].UsedPercent != 4 || windows[1].UsedPercent != 1.5 {
+				t.Errorf("percentages = %v, %v, want 4 and 1.5", windows[0].UsedPercent, windows[1].UsedPercent)
+			}
+		})
 	}
 }
 
@@ -662,6 +831,17 @@ func TestFetch_MalformedBodyErrors(t *testing.T) {
 	}
 	if windows != nil {
 		t.Errorf("Fetch() windows = %+v, want nil alongside the error", windows)
+	}
+	assertNoSelfPrefix(t, err)
+}
+
+// assertNoSelfPrefix pins the rule that this package never prefixes its own
+// errors with the provider name: internal/usage renders "<provider>  error:
+// <message>", so a self-prefix would print the name twice.
+func assertNoSelfPrefix(t *testing.T, err error) {
+	t.Helper()
+	if strings.HasPrefix(err.Error(), "cursor") {
+		t.Errorf("Fetch() error = %q, want no provider-name prefix", err.Error())
 	}
 }
 
