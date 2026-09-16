@@ -173,16 +173,53 @@ func keychainMiss(err error) bool {
 		strings.Contains(msg, "could not be found")
 }
 
+// windowsGOOS is the one platform that spells the home directory
+// %USERPROFILE% rather than $HOME.
+const windowsGOOS = "windows"
+
 // defaultCredentialPath returns the OS-default location of Claude's
-// credential file. This is the U13 seam: it is the only place a default path
-// is decided. Linux and macOS are $HOME-relative; the exact Windows path is
-// U13's to add.
+// credential file for the platform this binary was built for.
 func defaultCredentialPath() (string, error) {
-	home, err := os.UserHomeDir()
+	return credentialPathFor(runtime.GOOS)
+}
+
+// credentialPathFor returns Claude's default credential file for goos. This
+// is the U13 seam: the only place a default path is decided, with the
+// platform passed in (runtime.GOOS in production) so every platform's answer
+// is testable from any host.
+//
+// The layout is the same everywhere — the credential file sits in .claude
+// under the home directory — so only the home directory itself is per-OS:
+//
+//	Windows        %USERPROFILE%\.claude\.credentials.json
+//	macOS, Linux   $HOME/.claude/.credentials.json
+//
+// filepath.Join supplies the separator, so the Windows form above is what a
+// Windows build produces, not a string spelled out here. On macOS the
+// Keychain is tried before this file; see loadStore.
+func credentialPathFor(goos string) (string, error) {
+	home, err := homeDirFor(goos)
 	if err != nil {
 		return "", fmt.Errorf("locate home directory: %w", err)
 	}
 	return filepath.Join(home, ".claude", ".credentials.json"), nil
+}
+
+// homeDirFor returns the home directory goos keeps credentials under:
+// %USERPROFILE% on Windows, $HOME everywhere else. os.UserHomeDir already
+// reads exactly those variables per platform, so this only makes the choice
+// explicit and injectable — it is what lets a Linux CI runner assert the
+// Windows path — and os.UserHomeDir remains the fallback (and the source of
+// the "home directory unknown" error) whenever the variable is unset.
+func homeDirFor(goos string) (string, error) {
+	env := "HOME"
+	if goos == windowsGOOS {
+		env = "USERPROFILE"
+	}
+	if dir := os.Getenv(env); dir != "" {
+		return dir, nil
+	}
+	return os.UserHomeDir()
 }
 
 // credentialPath is the path this Provider reads: the injected override when
