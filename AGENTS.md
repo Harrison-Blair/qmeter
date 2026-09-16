@@ -20,6 +20,16 @@ and add the narrowest pattern that covers it. Never remove the leading `*`.
 
 Develop on `dev` or feature branches off `dev`. Changes reach `main` only through a pull request, which the owner approves. Never commit directly to `main`.
 
+## Releases
+
+Merging to `main` cuts a release automatically: `.github/workflows/release.yml` re-runs
+the format, build, and test checks and then publishes a tag, a GitHub release with
+generated notes, and cross-compiled archives. The version comes from the git tags alone —
+the first release is `v0.1.0`, and every later merge bumps the minor and resets the patch
+(`v1.4.7` → `v1.5.0`), as implemented by `.github/scripts/next-version.sh`. No version is
+stored in the repo and nothing is ever committed back to `main`; if the merged commit is
+already tagged, the release is skipped.
+
 ## Test-driven development
 
 All Go changes are test-first. Write a failing test, run it and confirm it fails for the
