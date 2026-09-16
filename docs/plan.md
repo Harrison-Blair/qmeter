@@ -46,11 +46,13 @@ output.")
   computation, which is exactly why the long `codex` message in the block above does
   not widen the WINDOW column, while the `codex` row's own PROVIDER cell is still
   padded for real, to the widest provider name printed that run, like every other
-  row; providers print in registry order and windows in provider-declared order; when
-  nothing is detected, print only `no providers detected` — no header row — and exit
-  0; exit 1 only when `--provider` names an unknown provider. Final failure-line
-  wording (owner decision, no refresh path exists; the examples below are shown
-  unpadded, outside full-block context — see the golden block for real padding):
+  row; providers print in registry order and windows in provider-declared order —
+  windows first, then errors, then not-detected rows; registry order within each
+  group; when nothing is detected, print only `no providers detected` — no header
+  row — and exit 0; exit 1 only when `--provider` names an unknown provider. Final
+  failure-line wording (owner decision, no refresh path exists; the examples below
+  are shown unpadded, outside full-block context — see the golden block for real
+  padding):
   `ErrTokenExpired` renders as `<provider>  error: token expired, open <tool> to
   refresh` (e.g. `claude  error: token expired, open claude to refresh`, shown
   unpadded); `ErrNotLoggedIn` renders as `<provider>  error: not logged in, run
@@ -360,7 +362,7 @@ and `go test -race ./...` passes (see Testing strategy above).
 
 - [ ] **U6 — `internal/provider/claude`: macOS Keychain credential source**
   - Goal: add the Keychain lookup (`/usr/bin/security find-generic-password -s "Claude Code-credentials" -w`, absolute path) via `internal/lib/subprocess`, tried before the file on `runtime.GOOS == "darwin"`, falling back to the file on Keychain error. This unit only fills in U5's keychain-loader hook — it does not touch `defaultCredentialPath()`, which stays U13's alone.
-  - Files: modify `internal/provider/claude/credentials.go`; add `internal/provider/claude/credentials_darwin_test.go` (uses the fake runner so it runs on any OS).
+  - Files: modify `internal/provider/claude/credentials.go`; add `internal/provider/claude/credentials_keychain_test.go` (a `_darwin` suffix is a build constraint, which would hide the suite from the Linux CI runner; the fake runner means it runs on any OS).
   - Tests first: `TestCredentials_DarwinPrefersKeychain`, `TestCredentials_DarwinFallsBackToFileOnKeychainError`, `TestCredentials_NonDarwinSkipsKeychain`.
   - Acceptance: behavior gated on `runtime.GOOS`, fully testable off-macOS via the fake; marked "untested on real macOS hardware" until someone runs it there.
   - Depends on: U2, U5.
@@ -464,8 +466,8 @@ and `go test -race ./...` passes (see Testing strategy above).
     root-level persistent `--json` flag (added to `cmd/root.go` in this unit), and
     calls into `internal/usage`; exit 1 only when `--provider` names an unknown
     provider (not merely undetected).
-  - Files: create `internal/usage/registry.go`, `internal/usage/render.go`, extend
-    `internal/usage/usage_test.go`; create `cmd/usage/usage.go`,
+  - Files: create `internal/usage/registry.go`, `internal/usage/render.go`,
+    `internal/usage/render_test.go`, `internal/usage/registry_test.go`; create `cmd/usage/usage.go`,
     `cmd/usage/usage_test.go`; modify `cmd/root.go` to register the subcommand and add
     `root.PersistentFlags().Bool("json", false, ...)`.
   - Tests first: `TestRenderText_MatchesGoldenOutputBlock`,
@@ -482,7 +484,7 @@ and `go test -race ./...` passes (see Testing strategy above).
 
 - [ ] **U13 — Milestone 1 wrap-up: default paths per OS + manual QA notes**
   - Goal: wire each provider's real default path (each package's `defaultCredentialPath()` seam) to its OS-correct default; touches only that function, distinct from U5's/U6's functions. Exact Windows paths (owner ruling — most credential stores are `%USERPROFILE%`-relative, not `%APPDATA%`): Claude `%USERPROFILE%\.claude\.credentials.json`; Codex `%USERPROFILE%\.codex\auth.json`; Cursor CLI `%USERPROFILE%\.config\cursor\auth.json`; OpenCode Go `%USERPROFILE%\.local\share\opencode\auth.json`. Only the Cursor **desktop** `state.vscdb` fallback (backlog unit) is `%APPDATA%`-relative. This unit also adds a manual smoke-test checklist for a human to run once on real Windows and macOS machines.
-  - Files: create `internal/provider/<name>/paths_test.go` in each of `claude`, `codex`, `opencodego`, `cursor`; modify each provider's `credentials.go` `defaultCredentialPath()` only.
+  - Files: create `internal/provider/<name>/paths_test.go` in each of `claude`, `codex`, `opencodego`, `cursor`; modify each provider's `credentials.go` `defaultCredentialPath()` only; create `docs/manual-qa.md`.
   - Tests first: `TestDefaultPath_Windows`, `TestDefaultPath_MacOS`, `TestDefaultPath_Linux` in each of the four `paths_test.go` files.
   - Acceptance: `go test -race ./...` green on the CI runner (Linux); Windows/macOS default paths are unit-tested by string assertion, not by running on those OSes, and stay flagged untested-on-hardware until a human confirms.
   - Depends on: U5, U6, U7, U8, U10, U12.

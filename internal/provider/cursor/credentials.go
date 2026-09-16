@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 )
@@ -29,21 +30,60 @@ type credential struct {
 	UserID      string
 }
 
+// windowsGOOS is the one platform that spells the home directory
+// %USERPROFILE% rather than $HOME.
+const windowsGOOS = "windows"
+
 // defaultCredentialPath returns the Cursor CLI store's default location.
 //
 // Only the CLI store (written by cursor-agent) is read. The desktop app's
 // SQLite state.vscdb fallback is a separate, later unit; nothing here reaches
 // for it.
 //
-// U13 owns this function: it is the single seam where per-OS paths get wired
-// (Windows is %USERPROFILE%\.config\cursor\auth.json). Nothing else in this
-// package hardcodes a path.
+// The path is decided for the platform this binary was built for; see
+// credentialPathFor, the single seam where per-OS paths get wired. Nothing
+// else in this package hardcodes a path.
 func defaultCredentialPath() (string, error) {
-	home, err := os.UserHomeDir()
+	return credentialPathFor(runtime.GOOS)
+}
+
+// credentialPathFor returns the Cursor CLI store's default location for goos.
+// The platform is passed in (runtime.GOOS in production) so every platform's
+// answer is testable from any host.
+//
+// The layout is the same everywhere — auth.json in .config/cursor under the
+// home directory — so only the home directory itself is per-OS:
+//
+//	Windows        %USERPROFILE%\.config\cursor\auth.json
+//	macOS, Linux   $HOME/.config/cursor/auth.json
+//
+// filepath.Join supplies the separator, so the Windows form above is what a
+// Windows build produces, not a string spelled out here. Note the lowercase
+// "cursor": that is the CLI's directory. The desktop app's own state lives
+// under a capitalised "Cursor" directory and is a separate, later unit.
+func credentialPathFor(goos string) (string, error) {
+	home, err := homeDirFor(goos)
 	if err != nil {
 		return "", fmt.Errorf("locate home directory: %w", err)
 	}
 	return filepath.Join(home, ".config", "cursor", "auth.json"), nil
+}
+
+// homeDirFor returns the home directory goos keeps credentials under:
+// %USERPROFILE% on Windows, $HOME everywhere else. os.UserHomeDir already
+// reads exactly those variables per platform, so this only makes the choice
+// explicit and injectable — it is what lets a Linux CI runner assert the
+// Windows path — and os.UserHomeDir remains the fallback (and the source of
+// the "home directory unknown" error) whenever the variable is unset.
+func homeDirFor(goos string) (string, error) {
+	env := "HOME"
+	if goos == windowsGOOS {
+		env = "USERPROFILE"
+	}
+	if dir := os.Getenv(env); dir != "" {
+		return dir, nil
+	}
+	return os.UserHomeDir()
 }
 
 // credentialPath is the store path this provider reads: the injected one in
