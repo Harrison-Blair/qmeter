@@ -952,3 +952,147 @@ func TestFetch_EmptyRateLimitObjectIsNotAnError(t *testing.T) {
 		t.Errorf("Fetch() = %+v, want no windows", got)
 	}
 }
+
+func TestFetch_ParsesLiveResponseShape(t *testing.T) {
+	// The shape the endpoint actually returns (observed 2026-09-16): windows
+	// keyed limit_window_seconds / reset_after_seconds / reset_at, additional
+	// limits keyed limit_name with their windows nested under their own
+	// rate_limit object, and a null secondary_window.
+	clearEnv(t)
+	srv, _ := usageServer(t, "usage_live_shape.json")
+
+	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+
+	assertWindows(t, got, []provider.Window{
+		{
+			Provider:    "codex",
+			Name:        "5h",
+			Plan:        "pro",
+			UsedPercent: 12.5,
+			ResetsAt:    time.Unix(1789500000, 0).UTC(),
+			Period:      5 * time.Hour,
+		},
+		{
+			Provider:    "codex",
+			Name:        "gpt-5-codex primary",
+			Plan:        "pro",
+			UsedPercent: 20,
+			ResetsAt:    time.Unix(1789490000, 0).UTC(),
+			Period:      5 * time.Hour,
+		},
+		{
+			Provider:    "codex",
+			Name:        "gpt-5-codex secondary",
+			Plan:        "pro",
+			UsedPercent: 30,
+			ResetsAt:    time.Unix(1789900000, 0).UTC(),
+			Period:      7 * 24 * time.Hour,
+		},
+		{
+			// limit_name is empty here, so the metered feature names it.
+			Provider:    "codex",
+			Name:        "code_review primary",
+			Plan:        "pro",
+			UsedPercent: 5,
+			ResetsAt:    time.Unix(1789600000, 0).UTC(),
+			Period:      7 * 24 * time.Hour,
+		},
+	})
+
+	// The whole point of the repair: a real reset time, not "-".
+	for i, w := range got {
+		if w.ResetsAt.IsZero() {
+			t.Errorf("window %d (%s) has a zero ResetsAt", i, w.Name)
+		}
+		if w.Period == 0 {
+			t.Errorf("window %d (%s) has a zero Period", i, w.Name)
+		}
+	}
+}
+
+func TestFetch_LiveWindowFallsBackToResetAfterSeconds(t *testing.T) {
+	// Some windows report only the relative reset; it is measured against
+	// the injected clock.
+	clearEnv(t)
+	body := `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,` +
+		`"primary_window":{"limit_window_seconds":604800,"reset_after_seconds":900,"used_percent":42},` +
+		`"secondary_window":null}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("write body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	assertWindows(t, got, []provider.Window{
+		{
+			Provider:    "codex",
+			Name:        "weekly",
+			Plan:        "plus",
+			UsedPercent: 42,
+			ResetsAt:    testNow.Add(15 * time.Minute),
+			Period:      7 * 24 * time.Hour,
+		},
+	})
+}
+
+func TestFetch_ReferenceSpellingWinsWhenBothArePresent(t *testing.T) {
+	// Drift tolerance runs both ways, so a response could carry both
+	// spellings. The documented precedence is the reference table's spelling
+	// first, and it must not depend on map iteration order.
+	clearEnv(t)
+	body := `{"plan_type":"pro","rate_limit":{"primary_window":{` +
+		`"used_percent":10,` +
+		`"window_minutes":300,"limit_window_seconds":604800,` +
+		`"resets_at":"2026-09-16T18:30:00Z","reset_at":1000000000,` +
+		`"resets_in_seconds":60,"reset_after_seconds":120}},` +
+		`"additional_rate_limits":[{` +
+		`"name":"reference-name","limit_name":"live-name","metered_feature":"feature-name",` +
+		`"primary_window":{"used_percent":20,"window_minutes":300,"resets_in_seconds":30},` +
+		`"rate_limit":{"primary_window":{"used_percent":99,"window_minutes":10080,"resets_in_seconds":30}}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("write body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
+	// Repeated: a map-order-dependent winner passes intermittently.
+	for i := range 20 {
+		got, err := p.Fetch(testContext(t))
+		if err != nil {
+			t.Fatalf("attempt %d: Fetch() error = %v, want nil", i, err)
+		}
+		assertWindows(t, got, []provider.Window{
+			{
+				Provider:    "codex",
+				Name:        "5h", // window_minutes 300, not limit_window_seconds 604800
+				Plan:        "pro",
+				UsedPercent: 10,
+				ResetsAt:    time.Date(2026, time.September, 16, 18, 30, 0, 0, time.UTC),
+				Period:      5 * time.Hour,
+			},
+			{
+				Provider:    "codex",
+				Name:        "reference-name primary", // not limit_name, not metered_feature
+				Plan:        "pro",
+				UsedPercent: 20, // the entry's own window, not the nested one
+				ResetsAt:    testNow.Add(30 * time.Second),
+				Period:      5 * time.Hour,
+			},
+		})
+		if t.Failed() {
+			t.Fatalf("attempt %d failed", i)
+		}
+	}
+}
