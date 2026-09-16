@@ -1,0 +1,9 @@
+{
+  "OPENAI_API_KEY": "sk-test-not-a-real-key",
+  "tokens": {
+    "access_token": "",
+    "refresh_token": "",
+    "id_token": "",
+    "account_id": ""
+  }
+}

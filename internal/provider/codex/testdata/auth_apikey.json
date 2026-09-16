@@ -1,0 +1,6 @@
+{
+  "auth_mode": "apikey",
+  "OPENAI_API_KEY": "sk-test-not-a-real-key",
+  "last_refresh": null,
+  "tokens": null
+}
