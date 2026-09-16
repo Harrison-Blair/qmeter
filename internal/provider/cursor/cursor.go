@@ -88,8 +88,8 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 // Fetch retrieves the current billing cycle's usage from route A and
 // normalizes it into the "total" and "auto" windows.
 //
-// Only route A is implemented. The Connect-RPC route stays a documented
-// fallback in the plan; no code here reaches for it.
+// Only route A is implemented. The Connect-RPC route stays a known fallback
+// should route A be withdrawn; no code here reaches for it.
 func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 	cred, _, err := p.credential(ctx)
 	if err != nil {
@@ -148,10 +148,10 @@ func detectReason(err error) string {
 }
 
 // usageSummary is the route A response. It is deliberately partial and
-// tolerant: unknown fields (the plan's breakdown object, teamUsage — which is
-// present as an empty object on a personal account — and anything the vendor
-// adds later) are ignored, and a JSON null leaves a field at its zero value
-// rather than failing the decode.
+// tolerant: unknown fields (the breakdown object, teamUsage — which is present
+// as an empty object on a personal account — and anything the vendor adds
+// later) are ignored, and a JSON null leaves a field at its zero value rather
+// than failing the decode.
 type usageSummary struct {
 	// BillingCycleStart and BillingCycleEnd are RFC3339 timestamps bounding
 	// the current cycle; both windows derive ResetsAt and Period from them.
@@ -163,7 +163,7 @@ type usageSummary struct {
 
 	// LimitType and IsUnlimited are parsed but not yet surfaced in a Window;
 	// whether an unlimited plan should suppress or relabel the percentage is
-	// an open question in the plan.
+	// still an open question.
 	LimitType   string `json:"limitType"`
 	IsUnlimited bool   `json:"isUnlimited"`
 
@@ -210,8 +210,8 @@ var errNoPlanEnabled = errors.New("usage summary has no individualUsage.plan.ena
 var errNoPercentages = errors.New("usage summary is missing totalPercentUsed/autoPercentUsed")
 
 // windows normalizes the response into exactly two windows, "total" and
-// "auto", in that order — the plan's primary window first. Both describe the
-// same billing cycle, so both carry the same ResetsAt and Period.
+// "auto", in that order — the primary window first. Both describe the same
+// billing cycle, so both carry the same ResetsAt and Period.
 //
 // It never returns an empty slice with a nil error: an account with nothing
 // to report and a response qmeter can no longer read look identical once the

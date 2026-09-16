@@ -496,10 +496,10 @@ func seconds(v float64) time.Duration {
 // --- tolerant JSON decoding -------------------------------------------------
 //
 // Codex's field names have already drifted between snake_case and camelCase,
-// and the plan expects both to keep working. Rather than declaring every
-// field twice, this package matches keys by their normalized form, so
-// "used_percent", "usedPercent" and "UsedPercent" all land on the same
-// branch, and any key it does not recognize is ignored.
+// and both have to keep working. Rather than declaring every field twice,
+// this package matches keys by their normalized form, so "used_percent",
+// "usedPercent" and "UsedPercent" all land on the same branch, and any key it
+// does not recognize is ignored.
 
 // normalizeKey folds a JSON key to the form this package switches on:
 // lowercase, with word separators removed.
