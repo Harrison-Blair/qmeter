@@ -147,11 +147,17 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 // responses carry. Parsing is tolerant — unknown fields are ignored and a
 // window qmeter cannot read is skipped rather than failing the fetch.
 //
+// A 200 that yields no window at all is an error, not an empty success: the
+// user asked for usage and there is none to show.
+//
 // An expired store credential is reported without any network I/O.
 func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
+	// Credential errors pass through unwrapped: credstore has already worded
+	// them for display ("not logged in, run claude to log in", or "credential
+	// store: ..."), and a second prefix would double up in the failure line.
 	cred, _, err := p.resolve(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("credentials: %w", err)
+		return nil, err
 	}
 
 	// Decoding the top level as raw messages keeps the unknown-key handling
@@ -170,8 +176,20 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 	if err := httpx.Get(ctx, opts, &body); err != nil {
 		return nil, fmt.Errorf("usage request: %w", err)
 	}
-	return windowsFrom(body, cred.Plan), nil
+	windows := windowsFrom(body, cred.Plan)
+	if len(windows) == 0 {
+		// An empty object, a null body, or a response whose shape has moved
+		// on entirely: reporting nothing would look like a provider with no
+		// limits rather than one qmeter could not read.
+		return nil, errNoKnownWindows
+	}
+	return windows, nil
 }
+
+// errNoKnownWindows is the failure for a 200 that carried nothing qmeter
+// recognizes. It is worded for display: internal/usage prints it verbatim
+// after the provider name.
+var errNoKnownWindows = errors.New("usage response carried no known windows")
 
 // usageURL is the endpoint this Provider queries.
 func (p *Provider) usageURL() string {
@@ -263,9 +281,13 @@ func scopedWindows(body map[string]json.RawMessage, plan string, seen map[string
 				continue
 			}
 			name := strings.TrimSpace(limit.Group)
-			// An entry qmeter cannot name or cannot quantify says nothing,
-			// and one that repeats a window already reported would double it.
-			if name == "" || limit.Percent == nil || seen[name] {
+			// All three fields are required, which is also what tells a real
+			// scoped limit apart from some other list that happens to carry a
+			// group and a percent: a notice like
+			// {"group":"billing","percent":100} has no reset time and must
+			// not render as a window sitting at 100% used. An entry repeating
+			// a window already reported would double it.
+			if name == "" || limit.Percent == nil || limit.ResetsAt.IsZero() || seen[name] {
 				continue
 			}
 			out = append(out, provider.Window{

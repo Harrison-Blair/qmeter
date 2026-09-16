@@ -1,0 +1,34 @@
+{
+  "zz_limits": [
+    {
+      "group": "zulu-model",
+      "percent": 80,
+      "resets_at": "2026-09-19T00:00:00Z"
+    }
+  ],
+  "mm_limits": [
+    {
+      "group": "mike-model",
+      "percent": 60,
+      "resets_at": "2026-09-19T00:00:00Z"
+    }
+  ],
+  "five_hour": {
+    "utilization": 12,
+    "resets_at": "2026-09-16T18:30:00Z"
+  },
+  "bb_limits": [
+    {
+      "group": "bravo-model",
+      "percent": 40,
+      "resets_at": "2026-09-19T00:00:00Z"
+    }
+  ],
+  "aa_limits": [
+    {
+      "group": "alpha-model",
+      "percent": 20,
+      "resets_at": "2026-09-19T00:00:00Z"
+    }
+  ]
+}
