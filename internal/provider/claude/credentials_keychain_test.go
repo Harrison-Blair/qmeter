@@ -16,6 +16,8 @@ package claude
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -270,4 +272,125 @@ func TestWithKeychainRunner_NilRunnerFallsBackToFile(t *testing.T) {
 	if cred.AccessToken != "sk-ant-oat01-store-token" {
 		t.Errorf("AccessToken = %q, want the file's token", cred.AccessToken)
 	}
+}
+
+func TestCredentials_KeychainItemNotFoundByMessageIsNotLoggedIn(t *testing.T) {
+	f := subprocess.NewFake()
+	// The other half of the item-not-found rule: security(1) saying so in
+	// words. Nothing was denied and nothing is broken — there is simply no
+	// credential — so this may still read as "not logged in".
+	scriptKeychain(f, nil, errors.New("The specified item could not be found in the keychain."))
+	p := newProvider(t,
+		withKeychain(f, "darwin"),
+		WithCredentialPath(filepath.Join(t.TempDir(), ".credentials.json")),
+	)
+
+	_, _, err := p.resolve(testContext(t))
+	if !errors.Is(err, provider.ErrNotLoggedIn{}) {
+		t.Fatalf("resolve() error = %v, want provider.ErrNotLoggedIn", err)
+	}
+	if got := err.Error(); got != "not logged in, run claude to log in" {
+		t.Errorf("Error() = %q, want %q", got, "not logged in, run claude to log in")
+	}
+}
+
+func TestCredentials_MissingSecurityBinaryIsAMiss(t *testing.T) {
+	// A machine with no /usr/bin/security — a GOOS=darwin binary run somewhere
+	// unusual, or a stripped image — fails the exec itself, which os/exec
+	// reports as os.ErrNotExist. There is no Keychain to have been denied by,
+	// so it is a miss like any other: it must never push its own error in
+	// front of what the file source has to say.
+	execErr := fmt.Errorf("fork/exec /usr/bin/security: %w", os.ErrNotExist)
+
+	t.Run("no file: not logged in", func(t *testing.T) {
+		f := subprocess.NewFake()
+		scriptKeychain(f, nil, execErr)
+		p := newProvider(t,
+			withKeychain(f, "darwin"),
+			WithCredentialPath(filepath.Join(t.TempDir(), ".credentials.json")),
+		)
+
+		_, _, err := p.resolve(testContext(t))
+		if !errors.Is(err, provider.ErrNotLoggedIn{}) {
+			t.Fatalf("resolve() error = %v, want provider.ErrNotLoggedIn", err)
+		}
+		if got := err.Error(); got != "not logged in, run claude to log in" {
+			t.Errorf("Error() = %q, want %q", got, "not logged in, run claude to log in")
+		}
+	})
+
+	t.Run("unreadable file: only the file error", func(t *testing.T) {
+		f := subprocess.NewFake()
+		scriptKeychain(f, nil, execErr)
+		p := newProvider(t,
+			withKeychain(f, "darwin"),
+			WithCredentialPath(unreadableFile(t)),
+		)
+
+		_, _, err := p.resolve(testContext(t))
+		if err == nil {
+			t.Fatal("resolve() error = nil, want the file read error")
+		}
+		// A missing security binary explains nothing about an unreadable
+		// file, so it must not be dragged into the message.
+		if strings.Contains(strings.ToLower(err.Error()), "keychain") {
+			t.Errorf("Error() = %q, want no mention of the keychain for a miss", err)
+		}
+		if !errors.Is(err, os.ErrPermission) {
+			t.Errorf("Error() = %v, want it to keep the file permission error", err)
+		}
+	})
+}
+
+func TestCredentials_KeychainErrorAndUnreadableFileKeepsBoth(t *testing.T) {
+	f := subprocess.NewFake()
+	// Both sources failed for their own reasons. Dropping either one leaves
+	// the user guessing which to fix, so the error names both.
+	scriptKeychain(f, nil, errors.New("exit status 51: User interaction is not allowed"))
+	path := unreadableFile(t)
+	p := newProvider(t, withKeychain(f, "darwin"), WithCredentialPath(path))
+
+	_, _, err := p.resolve(testContext(t))
+	if err == nil {
+		t.Fatal("resolve() error = nil, want both failures")
+	}
+	if errors.Is(err, provider.ErrNotLoggedIn{}) {
+		t.Fatalf("resolve() error = %v, want both failures, not ErrNotLoggedIn", err)
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Errorf("Error() = %v, want the file error still matchable with errors.Is", err)
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "credential store: ") {
+		t.Errorf("Error() = %q, want the credstore %q prefix", msg, "credential store: ")
+	}
+	if !strings.Contains(msg, "permission denied") {
+		t.Errorf("Error() = %q, want it to report the file read failure", msg)
+	}
+	if !strings.Contains(msg, "exit status 51") {
+		t.Errorf("Error() = %q, want it to report the Keychain failure too", msg)
+	}
+	// One line: internal/usage renders this as a single table row.
+	if strings.Contains(msg, "\n") {
+		t.Errorf("Error() = %q, want a single-line message", msg)
+	}
+}
+
+// unreadableFile returns the path of a file that exists but cannot be read,
+// so os.ReadFile fails with something other than os.ErrNotExist. Root ignores
+// the mode bits and Windows does not have them, so there is nothing to test
+// there.
+func unreadableFile(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes do not deny reads on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a 0000-mode file regardless")
+	}
+	path := filepath.Join(t.TempDir(), ".credentials.json")
+	if err := os.WriteFile(path, []byte(keychainJSON), 0o000); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
 }
