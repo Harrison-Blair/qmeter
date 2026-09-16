@@ -1,13 +1,9 @@
 package main
 
-import (
-	"os"
-
-	"github.com/Harrison-Blair/qmeter/internal/cli"
-)
+import "os"
 
 func main() {
-	if err := cli.Execute(); err != nil {
+	if err := NewRootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
 }

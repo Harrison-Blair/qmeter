@@ -27,6 +27,14 @@ right reason, write the minimal code to pass, refactor, repeat. Before declaring
 done, run `gofmt -l .`, `go vet ./...`, and `go test -race ./...` and report the output.
 Never weaken or skip a test to get green.
 
+## Layout
+
+`cmd/qmeter/` is the entrypoint and root command. Every other subcommand gets its own
+folder under `cmd/<name>/` with at least one file that defines the cobra command and
+calls into `internal/`. `internal/` mirrors that: one folder per subcommand under
+`internal/<name>/`, plus folders for shared logic. Command files hold wiring only;
+logic and its tests live in `internal/`.
+
 ## Instructions
 
 <!-- Add agent instructions below. -->
