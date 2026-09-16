@@ -148,15 +148,24 @@ func withKeychain(r subprocess.Runner, goos string) Option {
 // error: a user who clicked Deny is logged in perfectly well, and sending
 // them off to re-run `claude` would hide the real problem.
 //
-// The misses are: no keychain source on this platform, empty output, and
-// security(1) reporting the item is absent. That last one is matched on the
-// error text because the Runner interface deliberately hides os/exec: the
-// real runner surfaces an *exec.ExitError whose message is "exit status 44",
-// security(1)'s documented code for "The specified item could not be found in
-// the keychain". Any other exit code is treated as a real failure, which is
-// the safe direction to be wrong in.
+// The misses are: no keychain source on this platform, empty output,
+// security(1) not being on disk at all, and security(1) reporting the item is
+// absent. That last one is matched on the error text because the Runner
+// interface deliberately hides os/exec: the real runner surfaces an
+// *exec.ExitError whose message is "exit status 44", security(1)'s documented
+// code for "The specified item could not be found in the keychain". Any other
+// exit code is treated as a real failure, which is the safe direction to be
+// wrong in.
 func keychainMiss(err error) bool {
-	if errors.Is(err, errNoKeychain) || errors.Is(err, errKeychainEmpty) {
+	switch {
+	case errors.Is(err, errNoKeychain), errors.Is(err, errKeychainEmpty):
+		return true
+	case errors.Is(err, os.ErrNotExist):
+		// os/exec reports a missing binary as os.ErrNotExist ("fork/exec
+		// /usr/bin/security: no such file or directory"). No Keychain was
+		// ever reached, so there is nothing to report to the user beyond
+		// whatever the file source says. Stated explicitly rather than left
+		// to leak through the %w chain into credstore's not-found mapping.
 		return true
 	}
 	msg := err.Error()
@@ -207,10 +216,17 @@ func fromEnv(v string) (credential, error) {
 // parse are reported as the error they are, rather than silently reading a
 // file that may be staler.
 //
-// When the file is absent as well, the keychain error decides the wording: a
-// genuine miss (see keychainMiss) leaves os.ErrNotExist alone so credstore
-// renders "not logged in", while any other keychain failure replaces it, so a
-// denied Keychain prompt never reads as being logged out.
+// When the file IS present, any keychain lookup failure is simply the
+// fallback path: the file's credential is used and the keychain error is
+// dropped.
+//
+// When neither source yields a credential, the keychain error decides the
+// wording. A genuine miss (see keychainMiss) is left to the file error alone,
+// so an absent file still renders "not logged in". Any other keychain failure
+// is reported alongside it: on its own when the file is merely absent, so a
+// denied Keychain prompt never reads as being logged out, and joined with the
+// file's own error when that read failed for a reason of its own, so neither
+// half is lost.
 //
 // Error vocabulary, per credstore's contract: os.ReadFile's error is returned
 // unchanged when the file is absent (credstore maps os.ErrNotExist to
@@ -232,15 +248,27 @@ func (p *Provider) loadStore(ctx context.Context) (credential, error) {
 	}
 	data, err = os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && !keychainMiss(keychainErr) {
-			// Neither source produced a credential, and the keychain is the
-			// one that actually failed: keep its error so credstore reports
-			// it instead of mapping the missing file to "not logged in".
+		if keychainMiss(keychainErr) {
+			// Nothing was in the keychain to begin with, so the file error is
+			// the whole story — including os.ErrNotExist, which credstore
+			// turns into "not logged in".
+			return credential{}, err
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			// Only the keychain actually failed: keep its error so credstore
+			// reports it instead of mapping the missing file to "not logged
+			// in".
 			return credential{}, fmt.Errorf(
 				"macOS Keychain lookup (service %q) failed and there is no credential file at %s: %w",
 				keychainService, path, keychainErr)
 		}
-		return credential{}, err
+		// Both sources failed for their own reasons. Both are wrapped (one
+		// message, two %w verbs, so errors.Is still matches either) rather
+		// than errors.Join'd, whose newline would break the one-line-per-row
+		// rendering in internal/usage.
+		return credential{}, fmt.Errorf(
+			"%w; macOS Keychain lookup (service %q) also failed: %w",
+			err, keychainService, keychainErr)
 	}
 	return p.parseStore(data, path)
 }
