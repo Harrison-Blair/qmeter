@@ -3,6 +3,7 @@ package providertest_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,5 +107,50 @@ func TestUndetected_DetectFalseWithReason(t *testing.T) {
 	// but it must not panic if it is.
 	if _, err := p.Fetch(context.Background()); err != nil {
 		t.Errorf("Fetch() error = %v, want nil (no windows, no error) for an undetected fake with no scripted error", err)
+	}
+}
+
+func TestUndetected_FetchesZeroWhenNeverCalled(t *testing.T) {
+	p := providertest.Undetected("opencode-go", "not logged in, run opencode to log in")
+
+	if got := p.Fetches(); got != 0 {
+		t.Errorf("Fetches() = %d, want 0 for a fake whose Fetch was never called", got)
+	}
+}
+
+func TestFake_Fetches_CountsCalls(t *testing.T) {
+	windows := []provider.Window{{Provider: "claude", Name: "5h", UsedPercent: 10}}
+	p := providertest.Succeeding("claude", windows)
+
+	if got := p.Fetches(); got != 0 {
+		t.Fatalf("Fetches() = %d, want 0 before any call", got)
+	}
+
+	for i := 1; i <= 3; i++ {
+		if _, err := p.Fetch(context.Background()); err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if got := p.Fetches(); got != i {
+			t.Errorf("Fetches() = %d, want %d after %d call(s)", got, i, i)
+		}
+	}
+}
+
+func TestFake_Fetches_ConcurrencySafe(t *testing.T) {
+	p := providertest.Succeeding("claude", nil)
+
+	const n = 50
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = p.Fetch(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	if got := p.Fetches(); got != n {
+		t.Errorf("Fetches() = %d, want %d after %d concurrent calls", got, n, n)
 	}
 }
