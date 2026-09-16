@@ -157,6 +157,7 @@ them flat under `internal/`:
 ```
 cmd/
   main.go, root.go            (existing; root.go gains the persistent --json flag)
+  root_test.go                root wiring: the persistent --json flag, subcommands
   version/                    (existing)
   usage/
     usage.go                  cobra command: flag --provider; wiring only; reads the
@@ -179,6 +180,8 @@ internal/
     registry.go               concrete provider registry (order: claude, codex, opencode-go, cursor)
     render.go
     usage_test.go
+    registry_test.go
+    render_test.go
 ```
 
 Package graph: `cmd/usage` -> `internal/usage` -> `internal/provider/*` -> `internal/provider`,
@@ -468,8 +471,8 @@ and `go test -race ./...` passes (see Testing strategy above).
     provider (not merely undetected).
   - Files: create `internal/usage/registry.go`, `internal/usage/render.go`,
     `internal/usage/render_test.go`, `internal/usage/registry_test.go`; create `cmd/usage/usage.go`,
-    `cmd/usage/usage_test.go`; modify `cmd/root.go` to register the subcommand and add
-    `root.PersistentFlags().Bool("json", false, ...)`.
+    `cmd/usage/usage_test.go`, `cmd/root_test.go`; modify `cmd/root.go` to register the
+    subcommand and add `root.PersistentFlags().Bool("json", false, ...)`.
   - Tests first: `TestRenderText_MatchesGoldenOutputBlock`,
     `TestRenderText_NoProvidersDetectedLine`,
     `TestRenderText_FailureLineIsTwoCellPaddedRow`,
@@ -484,7 +487,7 @@ and `go test -race ./...` passes (see Testing strategy above).
 
 - [ ] **U13 — Milestone 1 wrap-up: default paths per OS + manual QA notes**
   - Goal: wire each provider's real default path (each package's `defaultCredentialPath()` seam) to its OS-correct default; touches only that function, distinct from U5's/U6's functions. Exact Windows paths (owner ruling — most credential stores are `%USERPROFILE%`-relative, not `%APPDATA%`): Claude `%USERPROFILE%\.claude\.credentials.json`; Codex `%USERPROFILE%\.codex\auth.json`; Cursor CLI `%USERPROFILE%\.config\cursor\auth.json`; OpenCode Go `%USERPROFILE%\.local\share\opencode\auth.json`. Only the Cursor **desktop** `state.vscdb` fallback (backlog unit) is `%APPDATA%`-relative. This unit also adds a manual smoke-test checklist for a human to run once on real Windows and macOS machines.
-  - Files: create `internal/provider/<name>/paths_test.go` in each of `claude`, `codex`, `opencodego`, `cursor`; modify each provider's `credentials.go` `defaultCredentialPath()` only; create `docs/manual-qa.md`.
+  - Files: create `internal/provider/<name>/paths_test.go` in each of `claude`, `codex`, `opencodego`, `cursor`; modify each provider's `credentials.go` `defaultCredentialPath()` and the path helpers it delegates to only; create `docs/manual-qa.md`.
   - Tests first: `TestDefaultPath_Windows`, `TestDefaultPath_MacOS`, `TestDefaultPath_Linux` in each of the four `paths_test.go` files.
   - Acceptance: `go test -race ./...` green on the CI runner (Linux); Windows/macOS default paths are unit-tested by string assertion, not by running on those OSes, and stay flagged untested-on-hardware until a human confirms.
   - Depends on: U5, U6, U7, U8, U10, U12.

@@ -29,8 +29,11 @@ Windows are actually exercised.
 ## Linux
 
 Run these with every `QMETER_*` override unset (`env -u QMETER_CLAUDE_TOKEN -u
-QMETER_CODEX_TOKEN -u QMETER_CURSOR_TOKEN -u QMETER_OPENCODE_GO_KEY ...`), so
-the local stores are what is being tested.
+QMETER_CODEX_TOKEN -u QMETER_CODEX_ACCOUNT_ID -u QMETER_CURSOR_TOKEN -u
+QMETER_OPENCODE_GO_KEY ...`), so the local stores are what is being tested.
+`QMETER_CODEX_ACCOUNT_ID` is only read alongside `QMETER_CODEX_TOKEN`, but a
+stale value left in the shell would send a mismatched `ChatGPT-Account-Id`, so
+clear it too.
 
 - [ ] **No credentials at all.** With none of the four stores present (move them
   aside; do not delete them), `qmeter usage` prints exactly `no providers
@@ -43,6 +46,18 @@ the local stores are what is being tested.
   exits 1. Confirm the stream with `qmeter usage --provider clade 2>/dev/null`
   (no output) and `... 1>/dev/null` (the one line). A provider that exists but
   is merely not detected is exit 0, not this case.
+- [ ] **A known provider, not logged in.** Move `~/.claude/.credentials.json`
+  aside and run `qmeter usage --provider claude`: it prints the header row and a
+  two-cell padded line whose cells are `claude` and `not detected: not logged in,
+  run claude to log in` (two spaces between them when claude is the only row
+  printed — the first cell is padded to the widest provider name of the run), and
+  exits **0** — not detected is not an error. `qmeter usage --json --provider
+  claude` puts the same provider under `undetected`, with the text under a
+  `reason` key (not `message`, which is what the `errors` array
+  uses): `{"windows":[],"errors":[],"undetected":[{"provider":"claude","reason":
+  "not logged in, run claude to log in"}]}`. Plain `qmeter usage` with no
+  `--provider` must **not** print that line at all — undetected providers are
+  silently omitted unless asked for by name.
 - [ ] **Each provider, logged in.** Log in to each CLI in turn (`claude`,
   `codex`, `cursor-agent`, `opencode`) and run `qmeter usage --provider
   <claude|codex|cursor|opencode-go>`:
