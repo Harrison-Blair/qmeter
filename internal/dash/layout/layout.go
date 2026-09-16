@@ -603,10 +603,3 @@ func lastCells(s string, w int) string {
 	}
 	return string(runes[i:])
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
