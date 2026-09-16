@@ -56,6 +56,13 @@ type Result struct {
 
 // Run detects, fetches and collects usage for providers. When only is
 // non-empty it restricts the run to the provider whose ID() equals only.
+//
+// Every Fetch runs on its own goroutine under a context derived from ctx
+// and bounded by DefaultProviderTimeout, and Run waits for all of them
+// before returning. A Provider must therefore return promptly once the
+// context it was given is done — one that ignores its context holds up the
+// whole run, since Run cannot abandon a goroutine still writing its result.
+// Canceling ctx cancels every in-flight Fetch.
 func Run(ctx context.Context, providers []provider.Provider, only string) Result {
 	return run(ctx, providers, only, DefaultProviderTimeout)
 }
@@ -109,6 +116,13 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 		wg.Add(1)
 		go func(slot int, p provider.Provider) {
 			defer wg.Done()
+			// A panicking provider must cost only its own result, not the
+			// whole process and its siblings' output.
+			defer func() {
+				if r := recover(); r != nil {
+					outcomes[slot] = outcome{err: fmt.Errorf("provider panicked: %v", r)}
+				}
+			}()
 			fetchCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 			windows, err := p.Fetch(fetchCtx)
@@ -119,7 +133,7 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 
 	for i, p := range detected {
 		if err := outcomes[i].err; err != nil {
-			res.Errors = append(res.Errors, ProviderError{Provider: p.ID(), Message: message(err, timeout)})
+			res.Errors = append(res.Errors, ProviderError{Provider: p.ID(), Message: message(ctx, err, timeout)})
 			continue
 		}
 		for _, w := range outcomes[i].windows {
@@ -137,8 +151,10 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 // message maps a Fetch error to the exact text the renderer prints. Typed
 // provider errors are extracted with errors.As and their Error() is called
 // on the extracted value, never on the wrapping error, so a provider's
-// "claude: fetch usage: " style prefix never leaks into the output.
-func message(err error, timeout time.Duration) string {
+// "claude: fetch usage: " style prefix never leaks into the output. ctx is
+// the caller's context, consulted so a caller-side cancellation or deadline
+// is never misreported as this package's per-provider timeout.
+func message(ctx context.Context, err error, timeout time.Duration) string {
 	var expired provider.ErrTokenExpired
 	if errors.As(err, &expired) {
 		return expired.Error()
@@ -149,9 +165,19 @@ func message(err error, timeout time.Duration) string {
 	}
 	var rateLimited provider.ErrRateLimited
 	if errors.As(err, &rateLimited) {
+		// Error() would render a missing retry-after as "retry in 0s",
+		// which reads as "retry immediately" — the opposite of the truth.
+		if rateLimited.RetryAfter == 0 {
+			return "rate limited, retry later"
+		}
 		return rateLimited.Error()
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	// The caller gave up: their cancellation or deadline reached the
+	// provider through the derived context, so this is not our timeout.
+	if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return "canceled"
+	}
+	if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Sprintf("timed out after %s", timeout)
 	}
 	return err.Error()
