@@ -1,0 +1,12 @@
+{
+  "five_hour": {
+    "utilization": 12,
+    "resets_at": "2026-09-16T18:30:00Z"
+  },
+  "notices": [
+    {
+      "group": "billing",
+      "percent": 100
+    }
+  ]
+}
