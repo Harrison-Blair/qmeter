@@ -540,7 +540,7 @@ func TestFetch_ExpiredStoreMakesNoRequest(t *testing.T) {
 	}
 }
 
-func TestFetch_MissingCredentialWrapsNotLoggedIn(t *testing.T) {
+func TestFetch_MissingCredentialReturnsNotLoggedInVerbatim(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_four_windows.json")
 	opts := append(pointAt(srv), WithCredentialPath(filepath.Join(t.TempDir(), ".credentials.json")))
 	p := newProvider(t, opts...)
@@ -549,8 +549,29 @@ func TestFetch_MissingCredentialWrapsNotLoggedIn(t *testing.T) {
 	if !errors.Is(err, provider.ErrNotLoggedIn{}) {
 		t.Fatalf("Fetch() error = %v, want provider.ErrNotLoggedIn", err)
 	}
-	if !strings.HasPrefix(err.Error(), "credentials: ") {
-		t.Errorf("Error() = %q, want it wrapped with an operation prefix", err.Error())
+	// Credential errors pass through unwrapped: credstore has already said
+	// everything there is to say, and a second prefix would double up in the
+	// rendered failure line.
+	if got := err.Error(); got != "not logged in, run claude to log in" {
+		t.Errorf("Error() = %q, want %q", got, "not logged in, run claude to log in")
+	}
+}
+
+func TestFetch_MalformedStoreSaysCredentialStoreOnce(t *testing.T) {
+	srv, _ := serveFixture(t, "usage_four_windows.json")
+	opts := append(pointAt(srv), WithCredentialPath(fixture("credentials_malformed.json")))
+	p := newProvider(t, opts...)
+
+	_, err := p.Fetch(testContext(t))
+	if err == nil {
+		t.Fatal("Fetch() error = nil, want a parse error")
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "credential store: parse ") {
+		t.Errorf("Error() = %q, want it to start with %q", msg, "credential store: parse ")
+	}
+	if n := strings.Count(msg, "credential store: "); n != 1 {
+		t.Errorf("Error() = %q, says %q %d times, want exactly once", msg, "credential store: ", n)
 	}
 }
 
@@ -573,5 +594,75 @@ func TestFetch_UsesDefaultBaseURLWhenUnset(t *testing.T) {
 	p := New()
 	if got, want := p.usageURL(), "https://api.anthropic.com/api/oauth/usage"; got != want {
 		t.Errorf("usageURL() = %q, want %q", got, want)
+	}
+}
+
+func TestFetch_ScopedLimitWithoutResetsAtIsSkipped(t *testing.T) {
+	// A top-level list can be something other than scoped limits. Requiring a
+	// parseable resets_at alongside group and percent is what keeps a notice
+	// like {"group":"billing","percent":100} from rendering as a fabricated
+	// 100%-used window.
+	srv, _ := serveFixture(t, "usage_notice_list.json")
+	p := newProvider(t, pointAt(srv)...)
+
+	got, err := p.Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	assertWindows(t, got, []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
+			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
+	})
+}
+
+func TestFetch_ScopedLimitsOrderedBySectionKey(t *testing.T) {
+	// Known windows come first, then the scoped sections in sorted key order,
+	// so window order never depends on Go's randomized map iteration.
+	srv, _ := serveFixture(t, "usage_scoped_ordering.json")
+	p := newProvider(t, pointAt(srv)...)
+
+	got, err := p.Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	// Four scoped sections, so an unsorted implementation cannot pass by
+	// landing on the right permutation: only 1 of the 24 orders is sorted.
+	scopedReset := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	assertWindows(t, got, []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
+			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
+		{Provider: "claude", Name: "alpha-model", Plan: "max", UsedPercent: 20, ResetsAt: scopedReset},
+		{Provider: "claude", Name: "bravo-model", Plan: "max", UsedPercent: 40, ResetsAt: scopedReset},
+		{Provider: "claude", Name: "mike-model", Plan: "max", UsedPercent: 60, ResetsAt: scopedReset},
+		{Provider: "claude", Name: "zulu-model", Plan: "max", UsedPercent: 80, ResetsAt: scopedReset},
+	})
+}
+
+func TestFetch_ResponseWithNoKnownWindowsErrors(t *testing.T) {
+	// A 200 qmeter cannot read anything out of is a failure to report, not a
+	// provider that silently contributes no lines.
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty object", body: `{}`},
+		{name: "null", body: `null`},
+		{name: "only unknown fields", body: `{"account_uuid":"1111","organization":{"name":"x"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := serveJSON(t, http.StatusOK, nil, []byte(tc.body))
+			p := newProvider(t, pointAt(srv)...)
+
+			got, err := p.Fetch(testContext(t))
+			if err == nil {
+				t.Fatalf("Fetch() = %+v, nil; want an error", got)
+			}
+			if err.Error() != "usage response carried no known windows" {
+				t.Errorf("Error() = %q, want %q", err.Error(), "usage response carried no known windows")
+			}
+			if got != nil {
+				t.Errorf("windows = %+v, want nil", got)
+			}
+		})
 	}
 }
