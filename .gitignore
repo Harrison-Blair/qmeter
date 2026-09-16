@@ -1,0 +1,17 @@
+# Allowlist: ignore everything, then explicitly allow what should be tracked.
+# Keep this small. Add a `!` rule only when a needed file is being ignored.
+*
+!*/
+
+# Code
+!*.go
+!go.mod
+!go.sum
+
+# Documentation
+!*.md
+!LICENSE
+
+# Repo config
+!.gitignore
+!.github/**
