@@ -17,20 +17,20 @@ var renderNow = time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 // layout contract in renderText's doc comment. It is the real output of
 // tabwriter.NewWriter(out, 0, 8, 2, ' ', 0) — do not hand-align it.
 const goldenBlock = "" +
-	"PROVIDER     WINDOW   PLAN  USED    RESETS\n" +
-	"claude       5h       max   42.0%   in 2h13m\n" +
-	"claude       weekly   max   18.5%   in 3d4h\n" +
-	"opencode-go  monthly  go    100.0%  in 12d  (rate limited)\n" +
-	"cursor       total    free  4.5%    in 7d22h\n" +
+	"PROVIDER     WINDOW   PLAN  REMAINING  RESETS\n" +
+	"claude       5h       max   58.0%      in 2h13m\n" +
+	"claude       weekly   max   81.5%      in 3d4h\n" +
+	"opencode-go  monthly  go    0.0%       in 12d  (rate limited)\n" +
+	"cursor       total    free  95.5%      in 7d22h\n" +
 	"codex        error: token expired, open codex to refresh\n"
 
 func TestRenderText_MatchesGoldenOutputBlock(t *testing.T) {
 	res := Result{
 		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 42.0, ResetsAt: renderNow.Add(2*time.Hour + 13*time.Minute)},
-			{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 18.5, ResetsAt: renderNow.Add(3*24*time.Hour + 4*time.Hour)},
-			{Provider: "opencode-go", Name: "monthly", Plan: "go", UsedPercent: 100.0, ResetsAt: renderNow.Add(12 * 24 * time.Hour), RateLimited: true},
-			{Provider: "cursor", Name: "total", Plan: "free", UsedPercent: 4.5, ResetsAt: renderNow.Add(7*24*time.Hour + 22*time.Hour)},
+			{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 58.0, ResetsAt: renderNow.Add(2*time.Hour + 13*time.Minute)},
+			{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 81.5, ResetsAt: renderNow.Add(3*24*time.Hour + 4*time.Hour)},
+			{Provider: "opencode-go", Name: "monthly", Plan: "go", RemainingPercent: 0.0, ResetsAt: renderNow.Add(12 * 24 * time.Hour), RateLimited: true},
+			{Provider: "cursor", Name: "total", Plan: "free", RemainingPercent: 95.5, ResetsAt: renderNow.Add(7*24*time.Hour + 22*time.Hour)},
 		},
 		Errors: []ProviderError{
 			{Provider: "codex", Message: "token expired, open codex to refresh"},
@@ -60,7 +60,7 @@ func TestRenderText_NoProvidersDetectedLine(t *testing.T) {
 func TestRenderText_FailureLineIsTwoCellPaddedRow(t *testing.T) {
 	res := Result{
 		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 42.0},
+			{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 58.0},
 		},
 		Errors: []ProviderError{
 			{Provider: "codex", Message: "token expired, open codex to refresh"},
@@ -75,8 +75,8 @@ func TestRenderText_FailureLineIsTwoCellPaddedRow(t *testing.T) {
 	// name printed, while its message — a non-tab-terminated last cell —
 	// is excluded from the WINDOW column's width.
 	want := "" +
-		"PROVIDER  WINDOW  PLAN  USED   RESETS\n" +
-		"claude    5h      max   42.0%  -\n" +
+		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
+		"claude    5h      max   58.0%      -\n" +
 		"codex     error: token expired, open codex to refresh\n"
 	if got := out.String(); got != want {
 		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
@@ -95,7 +95,7 @@ func TestRenderText_NotDetectedLineIsTwoCellPaddedRow(t *testing.T) {
 		t.Fatalf("renderText: %v", err)
 	}
 	want := "" +
-		"PROVIDER  WINDOW  PLAN  USED  RESETS\n" +
+		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
 		"codex     not detected: not logged in, run codex to log in\n"
 	if got := out.String(); got != want {
 		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
@@ -114,8 +114,8 @@ func TestRenderText_DashForEmptyPlanAndZeroResets(t *testing.T) {
 		t.Fatalf("renderText: %v", err)
 	}
 	want := "" +
-		"PROVIDER  WINDOW  PLAN  USED  RESETS\n" +
-		"claude    5h      -     0.0%  -\n"
+		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
+		"claude    5h      -     0.0%       -\n"
 	if got := out.String(); got != want {
 		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -124,7 +124,7 @@ func TestRenderText_DashForEmptyPlanAndZeroResets(t *testing.T) {
 func TestRenderText_RateLimitedSuffixOnDashResets(t *testing.T) {
 	res := Result{
 		Windows: []provider.Window{
-			{Provider: "opencode-go", Name: "monthly", Plan: "go", UsedPercent: 100, RateLimited: true},
+			{Provider: "opencode-go", Name: "monthly", Plan: "go", RemainingPercent: 0, RateLimited: true},
 		},
 	}
 
@@ -140,7 +140,7 @@ func TestRenderText_RateLimitedSuffixOnDashResets(t *testing.T) {
 func TestRenderText_UsesRealNowByDefault(t *testing.T) {
 	res := Result{
 		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", UsedPercent: 1, ResetsAt: time.Now().Add(2*time.Hour + 13*time.Minute)},
+			{Provider: "claude", Name: "5h", RemainingPercent: 99, ResetsAt: time.Now().Add(2*time.Hour + 13*time.Minute)},
 		},
 	}
 
@@ -189,12 +189,12 @@ func TestRenderJSON_MatchesEnvelopeWithAllThreeKeysAlwaysPresent(t *testing.T) {
 	res := Result{
 		Windows: []provider.Window{
 			{
-				Provider:    "claude",
-				Name:        "5h",
-				Plan:        "max",
-				UsedPercent: 42.5,
-				ResetsAt:    time.Date(2026, time.September, 16, 14, 13, 0, 0, time.UTC),
-				Period:      5 * time.Hour,
+				Provider:         "claude",
+				Name:             "5h",
+				Plan:             "max",
+				RemainingPercent: 57.5,
+				ResetsAt:         time.Date(2026, time.September, 16, 14, 13, 0, 0, time.UTC),
+				Period:           5 * time.Hour,
 			},
 		},
 		Errors: []ProviderError{
@@ -209,7 +209,7 @@ func TestRenderJSON_MatchesEnvelopeWithAllThreeKeysAlwaysPresent(t *testing.T) {
 	if err := RenderJSON(&out, res); err != nil {
 		t.Fatalf("RenderJSON: %v", err)
 	}
-	want := `{"windows":[{"provider":"claude","name":"5h","plan":"max","used_percent":42.5,` +
+	want := `{"windows":[{"provider":"claude","name":"5h","plan":"max","remaining_percent":57.5,` +
 		`"resets_at":"2026-09-16T14:13:00Z","period_seconds":18000,"rate_limited":false}],` +
 		`"errors":[{"provider":"codex","message":"token expired, open codex to refresh"}],` +
 		`"undetected":[{"provider":"cursor","reason":"not logged in, run cursor-agent to log in"}]}` + "\n"

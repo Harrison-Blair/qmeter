@@ -189,7 +189,7 @@ func fixedPeriod(d time.Duration) func(time.Time) time.Duration {
 }
 
 // window normalizes one window. A "rate-limited" status means the cap is
-// spent: 100% used, whatever percent says.
+// spent: 0% remaining, whatever percent says.
 func (u windowUsage) window(name string) (provider.Window, error) {
 	w := provider.Window{Provider: id, Name: name, Plan: planName}
 
@@ -202,7 +202,7 @@ func (u windowUsage) window(name string) (provider.Window, error) {
 	}
 
 	if u.Status == statusRateLimited {
-		w.UsedPercent = 100
+		w.RemainingPercent = provider.RemainingFromUsed(100)
 		w.RateLimited = true
 		return w, nil
 	}
@@ -211,7 +211,7 @@ func (u windowUsage) window(name string) (provider.Window, error) {
 	if err != nil {
 		return provider.Window{}, fmt.Errorf("window %q: %w", name, err)
 	}
-	w.UsedPercent = pct
+	w.RemainingPercent = provider.RemainingFromUsed(pct)
 	return w, nil
 }
 

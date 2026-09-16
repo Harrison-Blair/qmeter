@@ -37,7 +37,7 @@ func newTestRoot(t *testing.T, providers ...provider.Provider) (*cobra.Command, 
 }
 
 func window(id, name string) provider.Window {
-	return provider.Window{Provider: id, Name: name, Plan: "max", UsedPercent: 10}
+	return provider.Window{Provider: id, Name: name, Plan: "max", RemainingPercent: 10}
 }
 
 func TestCmd_ProviderFlagRestrictsOutput(t *testing.T) {
@@ -185,7 +185,7 @@ func TestCmd_RootJSONFlagSelectsJSONRenderer(t *testing.T) {
 			t.Fatalf("envelope is missing key %q: %q", key, out.String())
 		}
 	}
-	if !strings.Contains(out.String(), `"used_percent"`) {
+	if !strings.Contains(out.String(), `"remaining_percent"`) {
 		t.Fatalf("windows were not rendered through Window.MarshalJSON: %q", out.String())
 	}
 }

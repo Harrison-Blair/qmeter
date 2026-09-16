@@ -353,7 +353,7 @@ func assertWindows(t *testing.T, got, want []provider.Window) {
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.Provider != w.Provider || g.Name != w.Name || g.Plan != w.Plan ||
-			g.UsedPercent != w.UsedPercent || g.Period != w.Period || !g.ResetsAt.Equal(w.ResetsAt) {
+			g.RemainingPercent != w.RemainingPercent || g.Period != w.Period || !g.ResetsAt.Equal(w.ResetsAt) {
 			t.Errorf("window %d = %+v, want %+v", i, g, w)
 		}
 		if g.RateLimited {
@@ -375,10 +375,10 @@ func TestFetch_ParsesFourWindows(t *testing.T) {
 	weeklyReset := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 	const day = 24 * time.Hour
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 42, ResetsAt: fiveHourReset, Period: 5 * time.Hour},
-		{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 18.5, ResetsAt: weeklyReset, Period: 7 * day},
-		{Provider: "claude", Name: "sonnet weekly", Plan: "max", UsedPercent: 7, ResetsAt: weeklyReset, Period: 7 * day},
-		{Provider: "claude", Name: "opus weekly", Plan: "max", UsedPercent: 0, ResetsAt: weeklyReset, Period: 7 * day},
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 58, ResetsAt: fiveHourReset, Period: 5 * time.Hour},
+		{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 81.5, ResetsAt: weeklyReset, Period: 7 * day},
+		{Provider: "claude", Name: "sonnet weekly", Plan: "max", RemainingPercent: 93, ResetsAt: weeklyReset, Period: 7 * day},
+		{Provider: "claude", Name: "opus weekly", Plan: "max", RemainingPercent: 100, ResetsAt: weeklyReset, Period: 7 * day},
 	})
 
 	calls, method, path, header := rec.snapshot()
@@ -441,13 +441,13 @@ func TestFetch_ParsesScopedPerModelLimits_SkipsUnknown(t *testing.T) {
 	// (same reset instant), and an unknown object that is not a limits list
 	// at all.
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 88,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "claude-opus-4-6", Plan: "max", UsedPercent: 55,
+		{Provider: "claude", Name: "claude-opus-4-6", Plan: "max", RemainingPercent: 45,
 			ResetsAt: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)},
-		{Provider: "claude", Name: "claude-haiku-4-5", Plan: "max", UsedPercent: 3.5,
+		{Provider: "claude", Name: "claude-haiku-4-5", Plan: "max", RemainingPercent: 96.5,
 			ResetsAt: time.Unix(1789776060, 0).UTC()},
-		{Provider: "claude", Name: "5h (2)", Plan: "max", UsedPercent: 77,
+		{Provider: "claude", Name: "5h (2)", Plan: "max", RemainingPercent: 23,
 			ResetsAt: time.Date(2026, 9, 16, 23, 45, 0, 0, time.UTC)},
 	})
 }
@@ -488,7 +488,7 @@ func TestFetch_SkipsWindowsWithoutUtilization(t *testing.T) {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 5,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 95,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
 	})
 }
@@ -615,7 +615,7 @@ func TestFetch_ScopedLimitWithoutResetsAtIsSkipped(t *testing.T) {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 88,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
 	})
 }
@@ -636,12 +636,12 @@ func TestFetch_ScopedLimitsOrderedBySectionKey(t *testing.T) {
 	// mean the same limit restated rather than four different ones.
 	resetAt := func(sec int) time.Time { return time.Date(2026, 9, 19, 0, 0, sec, 0, time.UTC) }
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 12,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 88,
 			ResetsAt: time.Date(2026, 9, 16, 18, 30, 0, 0, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "alpha-model", Plan: "max", UsedPercent: 20, ResetsAt: resetAt(1)},
-		{Provider: "claude", Name: "bravo-model", Plan: "max", UsedPercent: 40, ResetsAt: resetAt(2)},
-		{Provider: "claude", Name: "mike-model", Plan: "max", UsedPercent: 60, ResetsAt: resetAt(3)},
-		{Provider: "claude", Name: "zulu-model", Plan: "max", UsedPercent: 80, ResetsAt: resetAt(4)},
+		{Provider: "claude", Name: "alpha-model", Plan: "max", RemainingPercent: 80, ResetsAt: resetAt(1)},
+		{Provider: "claude", Name: "bravo-model", Plan: "max", RemainingPercent: 60, ResetsAt: resetAt(2)},
+		{Provider: "claude", Name: "mike-model", Plan: "max", RemainingPercent: 40, ResetsAt: resetAt(3)},
+		{Provider: "claude", Name: "zulu-model", Plan: "max", RemainingPercent: 20, ResetsAt: resetAt(4)},
 	})
 }
 
@@ -695,11 +695,11 @@ func TestFetch_ParsesLiveShape(t *testing.T) {
 	scopedReset := time.Date(2026, 9, 21, 10, 0, 0, 947816000, time.UTC)
 	const week = 7 * 24 * time.Hour
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 41, ResetsAt: sessionReset, Period: 5 * time.Hour},
-		{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 22, ResetsAt: weeklyReset, Period: week},
-		{Provider: "claude", Name: "sonnet weekly", Plan: "max", UsedPercent: 9, ResetsAt: weeklyReset, Period: week},
-		{Provider: "claude", Name: "opus weekly", Plan: "max", UsedPercent: 3, ResetsAt: weeklyReset, Period: week},
-		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 3, ResetsAt: scopedReset, Period: week},
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 59, ResetsAt: sessionReset, Period: 5 * time.Hour},
+		{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 78, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "sonnet weekly", Plan: "max", RemainingPercent: 91, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "opus weekly", Plan: "max", RemainingPercent: 97, ResetsAt: weeklyReset, Period: week},
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", RemainingPercent: 97, ResetsAt: scopedReset, Period: week},
 	})
 	for _, w := range got {
 		if w.Name == "session" || w.Name == "weekly_all" {
@@ -723,15 +723,15 @@ func TestFetch_ScopedNamesComeFromScopeAndKind(t *testing.T) {
 	// "MONTHLY_ALL"). Two limits that end up with the same name both survive
 	// — the second gets a " (2)" suffix — because they are different limits.
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 10,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 90,
 			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 100000000, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 30,
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", RemainingPercent: 70,
 			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 100000000, time.UTC), Period: 7 * 24 * time.Hour},
-		{Provider: "claude", Name: "claude opus 4.6 weekly (2)", Plan: "max", UsedPercent: 40,
+		{Provider: "claude", Name: "claude opus 4.6 weekly (2)", Plan: "max", RemainingPercent: 60,
 			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 200000000, time.UTC), Period: 7 * 24 * time.Hour},
-		{Provider: "claude", Name: "claude haiku 4.5 session", Plan: "max", UsedPercent: 15,
+		{Provider: "claude", Name: "claude haiku 4.5 session", Plan: "max", RemainingPercent: 85,
 			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 500000000, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "monthly_all", Plan: "max", UsedPercent: 55,
+		{Provider: "claude", Name: "monthly_all", Plan: "max", RemainingPercent: 45,
 			ResetsAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Period: 0},
 	})
 }
@@ -751,13 +751,13 @@ func TestFetch_ScopedLimitsSharingAnInstantBothAppear(t *testing.T) {
 	const week = 7 * 24 * time.Hour
 	sharedReset := time.Date(2026, 9, 21, 10, 0, 0, 900000000, time.UTC)
 	assertWindows(t, got, []provider.Window{
-		{Provider: "claude", Name: "5h", Plan: "max", UsedPercent: 10,
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 90,
 			ResetsAt: time.Date(2026, 9, 16, 15, 30, 0, 100000000, time.UTC), Period: 5 * time.Hour},
-		{Provider: "claude", Name: "weekly", Plan: "max", UsedPercent: 20,
+		{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 80,
 			ResetsAt: time.Date(2026, 9, 21, 10, 0, 0, 100000000, time.UTC), Period: week},
-		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", UsedPercent: 30,
+		{Provider: "claude", Name: "claude opus 4.6 weekly", Plan: "max", RemainingPercent: 70,
 			ResetsAt: sharedReset, Period: week},
-		{Provider: "claude", Name: "claude sonnet 4.5 weekly", Plan: "max", UsedPercent: 45,
+		{Provider: "claude", Name: "claude sonnet 4.5 weekly", Plan: "max", RemainingPercent: 55,
 			ResetsAt: sharedReset, Period: week},
 	})
 	// The session entry restating five_hour is still dropped: dedup against
