@@ -29,7 +29,7 @@ Never weaken or skip a test to get green.
 
 ## Layout
 
-`cmd/qmeter/` is the entrypoint and root command. Every other subcommand gets its own
+`cmd/` holds the entrypoint and root command directly. Every subcommand gets its own
 folder under `cmd/<name>/` with at least one file that defines the cobra command and
 calls into `internal/`. `internal/` mirrors that: one folder per subcommand under
 `internal/<name>/`, plus folders for shared logic. Command files hold wiring only;
