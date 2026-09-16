@@ -1,0 +1,7 @@
+{
+  "plan_type": "free",
+  "rate_limit": {
+    "primary_window": {"resets_in_seconds": 900, "window_minutes": 300}
+  },
+  "credits": {}
+}
