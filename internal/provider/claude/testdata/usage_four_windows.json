@@ -1,0 +1,22 @@
+{
+  "five_hour": {
+    "utilization": 42,
+    "resets_at": "2026-09-16T18:30:00Z"
+  },
+  "seven_day": {
+    "utilization": 18.5,
+    "resets_at": "2026-09-19T00:00:00Z"
+  },
+  "seven_day_sonnet": {
+    "utilization": 7,
+    "resets_at": "2026-09-19T00:00:00Z"
+  },
+  "seven_day_opus": {
+    "utilization": 0,
+    "resets_at": "2026-09-19T00:00:00Z"
+  },
+  "account_uuid": "11111111-2222-3333-4444-555555555555",
+  "organization": {
+    "name": "an unknown object, not a window"
+  }
+}

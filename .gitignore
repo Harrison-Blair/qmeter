@@ -15,3 +15,10 @@
 # Repo config
 !.gitignore
 !.github/**
+
+# Install scripts
+!install.sh
+!install.ps1
+
+# Test fixtures
+!**/testdata/**

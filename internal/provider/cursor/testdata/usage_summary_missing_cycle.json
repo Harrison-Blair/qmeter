@@ -1,0 +1,17 @@
+{
+  "billingCycleStart": "",
+  "billingCycleEnd": "not-a-timestamp",
+  "membershipType": "free",
+  "limitType": "user",
+  "isUnlimited": false,
+  "individualUsage": {
+    "plan": {
+      "enabled": true,
+      "autoPercentUsed": 1.5,
+      "apiPercentUsed": 2.5,
+      "totalPercentUsed": 4
+    },
+    "onDemand": {"enabled": false}
+  },
+  "teamUsage": {}
+}
