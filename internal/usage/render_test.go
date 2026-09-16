@@ -218,6 +218,24 @@ func TestRenderJSON_MatchesEnvelopeWithAllThreeKeysAlwaysPresent(t *testing.T) {
 	}
 }
 
+func TestRenderJSON_DoesNotEscapeHTMLInMessages(t *testing.T) {
+	res := Result{
+		Undetected: []ProviderError{
+			{Provider: "cursor", Message: `no readable /home/me/a&b/auth.json <or> other`},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := RenderJSON(&out, res); err != nil {
+		t.Fatalf("RenderJSON: %v", err)
+	}
+	// A path or reason carrying & < > must survive verbatim rather than
+	// arriving as & — these are messages, not HTML.
+	if !strings.Contains(out.String(), `/home/me/a&b/auth.json <or> other`) {
+		t.Fatalf("message was HTML-escaped: %s", out.String())
+	}
+}
+
 func TestRenderJSON_NilSlicesRenderAsEmptyArrays(t *testing.T) {
 	var out bytes.Buffer
 	if err := RenderJSON(&out, Result{}); err != nil {

@@ -144,5 +144,9 @@ func RenderJSON(w io.Writer, r Result) error {
 	for _, u := range r.Undetected {
 		env.Undetected = append(env.Undetected, jsonUndetected{Provider: u.Provider, Reason: u.Message})
 	}
-	return json.NewEncoder(w).Encode(env)
+	enc := json.NewEncoder(w)
+	// Messages carry credential paths and provider reasons, not HTML: a
+	// path containing & must stay readable rather than become &.
+	enc.SetEscapeHTML(false)
+	return enc.Encode(env)
 }

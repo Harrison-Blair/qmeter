@@ -29,9 +29,6 @@ func New() *cobra.Command {
 		Long: "Show usage limits for every detected provider.\n\n" +
 			"Undetected providers are omitted unless --provider names one.",
 		Args: cobra.NoArgs,
-		// The unknown-provider error is printed to stderr below, in the
-		// exact wording the plan rules; cobra must not print it again.
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			only, err := cmd.Flags().GetString("provider")
 			if err != nil {
@@ -51,6 +48,12 @@ func New() *cobra.Command {
 			if res.UnknownProvider {
 				msg := fmt.Sprintf("unknown provider %q (valid: %s)", only, validProviders)
 				fmt.Fprintln(cmd.ErrOrStderr(), msg)
+				// Silence cobra's own report of this one error so the line
+				// above is not printed twice. It is set here rather than on
+				// the command literal, where it would also swallow cobra's
+				// reports of a bad argument or an unknown flag and turn
+				// those into a silent exit 1.
+				cmd.SilenceErrors = true
 				return errors.New(msg)
 			}
 			// The run was cut short (an interrupt, a caller deadline), so
