@@ -167,33 +167,39 @@ func TestCredentials_APIKeyModeUnsupported(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := New(WithCredentialPath(tc.path))
-
-			_, err := p.resolveCredential(context.Background())
-			if err == nil {
-				t.Fatalf("resolveCredential() error = nil, want an unsupported-mode error")
-			}
-			// Not a login problem and not a parse failure.
-			if errors.Is(err, provider.ErrNotLoggedIn{}) {
-				t.Fatalf("resolveCredential() error = %v, want a non-ErrNotLoggedIn error", err)
-			}
-			msg := err.Error()
-			if !strings.Contains(msg, "apikey") {
-				t.Errorf("error %q does not name the apikey auth mode", msg)
-			}
-			if !strings.Contains(msg, "usage") {
-				t.Errorf("error %q does not say usage limits are unavailable", msg)
-			}
-			if strings.Contains(msg, "parse") || strings.Contains(msg, "keyring") {
-				t.Errorf("error %q reads as a parse/keyring failure", msg)
-			}
+			// The store exists and parses, which is the whole of the Detect
+			// contract, so an API-key store is detected and then reported by
+			// Fetch — never silently omitted from the default listing.
+			srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				t.Error("usage endpoint called for an API-key store")
+			}))
+			t.Cleanup(srv.Close)
+			p := testProvider(t, srv, tc.path)
 
 			ok, reason := p.Detect(context.Background())
-			if ok {
-				t.Errorf("Detect() ok = true, want false for an API-key store")
+			if !ok {
+				t.Errorf("Detect() ok = false (reason %q), want true for an API-key store", reason)
 			}
-			if reason != msg {
-				t.Errorf("Detect() reason = %q, want %q", reason, msg)
+			if reason != "" {
+				t.Errorf("Detect() reason = %q, want empty", reason)
+			}
+
+			_, err := p.Fetch(testContext(t))
+			if err == nil {
+				t.Fatalf("Fetch() error = nil, want an unsupported-mode error")
+			}
+			if !errors.Is(err, errAPIKeyMode) {
+				t.Errorf("Fetch() error = %v, want errAPIKeyMode", err)
+			}
+			// Not a login problem, and not a parse failure.
+			if errors.Is(err, provider.ErrNotLoggedIn{}) {
+				t.Fatalf("Fetch() error = %v, want a non-ErrNotLoggedIn error", err)
+			}
+			// internal/usage renders an untyped error verbatim, so no
+			// wrapping prefix of any kind may survive.
+			want := `signed in with an API key (auth_mode "apikey"); Codex usage limits exist only for ChatGPT sign-in`
+			if got := err.Error(); got != want {
+				t.Errorf("Fetch() error message =\n  %q\nwant\n  %q", got, want)
 			}
 		})
 	}
@@ -812,5 +818,137 @@ func TestWindowName_DerivesFriendlyNamesFromPeriod(t *testing.T) {
 				t.Errorf("windowName(%v, %q) = %q, want %q", tc.period, tc.fallback, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIDToken_PrefersNamespacedClaimOverOtherNestedObjects(t *testing.T) {
+	// Several claims can be objects; the OpenAI namespace is the one that
+	// actually carries these claims, so the result must not depend on map
+	// iteration order.
+	token := makeIDToken(t, map[string]any{
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_plan_type":  "pro",
+			"chatgpt_account_id": "namespaced-account-id",
+		},
+		// A decoy that sorts before the namespace and would otherwise win
+		// roughly half the time.
+		"aaa_other_claim": map[string]any{
+			"chatgpt_plan_type":  "decoy-plan",
+			"chatgpt_account_id": "decoy-account-id",
+		},
+		"zzz_other_claim": map[string]any{
+			"chatgpt_plan_type":  "decoy-plan",
+			"chatgpt_account_id": "decoy-account-id",
+		},
+	})
+
+	// Repeat: a map-order bug passes intermittently on a single attempt.
+	for i := range 50 {
+		claims, err := decodeIDToken(token)
+		if err != nil {
+			t.Fatalf("attempt %d: decodeIDToken() error = %v, want nil", i, err)
+		}
+		if claims.PlanType != "pro" {
+			t.Fatalf("attempt %d: PlanType = %q, want %q", i, claims.PlanType, "pro")
+		}
+		if claims.AccountID != "namespaced-account-id" {
+			t.Fatalf("attempt %d: AccountID = %q, want %q", i, claims.AccountID, "namespaced-account-id")
+		}
+	}
+}
+
+func TestIDToken_NestedClaimsAreReadInSortedOrder(t *testing.T) {
+	// With no OpenAI namespace present, the remaining object claims are
+	// tried in sorted key order, so the winner is at least deterministic.
+	token := makeIDToken(t, map[string]any{
+		"aaa_claim": map[string]any{"chatgpt_plan_type": "first-plan"},
+		"bbb_claim": map[string]any{"chatgpt_plan_type": "second-plan"},
+	})
+
+	for i := range 50 {
+		claims, err := decodeIDToken(token)
+		if err != nil {
+			t.Fatalf("attempt %d: decodeIDToken() error = %v, want nil", i, err)
+		}
+		if claims.PlanType != "first-plan" {
+			t.Fatalf("attempt %d: PlanType = %q, want %q", i, claims.PlanType, "first-plan")
+		}
+	}
+}
+
+func TestFetch_ServerErrorIsNotSelfPrefixed(t *testing.T) {
+	clearEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "upstream exploded", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	if err == nil {
+		t.Fatalf("Fetch() error = nil, want an error for status 500")
+	}
+	// internal/usage prints "codex\terror: <message>", so a message that
+	// names the provider again reads as "codex error: codex: ...".
+	if strings.HasPrefix(err.Error(), providerID) {
+		t.Errorf("Fetch() error %q prefixes itself with the provider name", err.Error())
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("Fetch() error %q does not carry the status code", err.Error())
+	}
+}
+
+func TestFetch_ResponseWithoutRateLimitsIsAnError(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "null body", body: "null"},
+		{name: "empty object", body: "{}"},
+		{name: "only credits", body: `{"credits":{"balance":5}}`},
+		{name: "explicit null rate limit", body: `{"plan_type":"plus","rate_limit":null}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if _, err := w.Write([]byte(tc.body)); err != nil {
+					t.Errorf("write body: %v", err)
+				}
+			}))
+			t.Cleanup(srv.Close)
+
+			got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+			if err == nil {
+				t.Fatalf("Fetch() = %+v, error = nil; want an error for a response with no rate limits", got)
+			}
+			if !errors.Is(err, errNoRateLimits) {
+				t.Errorf("Fetch() error = %v, want errNoRateLimits", err)
+			}
+			if got != nil {
+				t.Errorf("Fetch() = %+v, want no windows alongside the error", got)
+			}
+		})
+	}
+}
+
+func TestFetch_EmptyRateLimitObjectIsNotAnError(t *testing.T) {
+	// A present-but-empty rate_limit means "no windows to report", which is
+	// not the same as a response that carried no rate limits at all.
+	clearEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"plan_type":"plus","rate_limit":{}}`)); err != nil {
+			t.Errorf("write body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	if err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Fetch() = %+v, want no windows", got)
 	}
 }

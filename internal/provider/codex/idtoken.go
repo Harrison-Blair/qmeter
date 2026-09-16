@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
+
+// openAIAuthClaim is the namespace OpenAI nests the chatgpt_* claims under.
+const openAIAuthClaim = "https://api.openai.com/auth"
 
 // idTokenClaims are the only claims qmeter reads out of a Codex id_token.
 type idTokenClaims struct {
@@ -46,10 +50,12 @@ func decodeIDToken(token string) (idTokenClaims, error) {
 	if claims.PlanType != "" && claims.AccountID != "" {
 		return claims, nil
 	}
-	// Fall back to the namespaced claim objects OpenAI nests these under.
-	for _, raw := range obj {
+	// Fall back to the claim objects these are nested inside: OpenAI's own
+	// namespace first, then any other object claim in sorted order. Map
+	// iteration order must not decide which of two candidates wins.
+	for _, key := range nestedClaimKeys(obj) {
 		var nested map[string]json.RawMessage
-		if json.Unmarshal(raw, &nested) != nil {
+		if json.Unmarshal(obj[key], &nested) != nil {
 			continue
 		}
 		inner := claimsFrom(nested)
@@ -59,8 +65,28 @@ func decodeIDToken(token string) (idTokenClaims, error) {
 		if claims.AccountID == "" {
 			claims.AccountID = inner.AccountID
 		}
+		if claims.PlanType != "" && claims.AccountID != "" {
+			break
+		}
 	}
 	return claims, nil
+}
+
+// nestedClaimKeys returns the claim names to search for nested chatgpt_*
+// claims, in a deterministic order: the OpenAI namespace, then the rest
+// sorted.
+func nestedClaimKeys(obj map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		if key != openAIAuthClaim {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	if _, ok := obj[openAIAuthClaim]; ok {
+		keys = append([]string{openAIAuthClaim}, keys...)
+	}
+	return keys
 }
 
 // claimsFrom reads the two claims out of one decoded JSON object, matching

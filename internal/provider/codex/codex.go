@@ -93,13 +93,18 @@ func (p *Provider) ID() string { return providerID }
 // expired token still counts as detected, since only the endpoint can say so
 // and Fetch reports that as provider.ErrTokenExpired.
 //
-// An API-key store reports false: the credential is real but the ChatGPT
-// usage endpoint has nothing to say about it, so there is no usage to show.
+// An API-key store counts as detected too: the file exists and parses,
+// which is the whole of the Detect contract. That its sign-in mode has no
+// usage endpoint is Fetch's to report, so codex shows an explanatory line
+// rather than vanishing from the default listing.
 func (p *Provider) Detect(ctx context.Context) (bool, string) {
-	if _, err := p.resolveCredential(ctx); err != nil {
+	_, err := p.resolveCredential(ctx)
+	switch {
+	case err == nil, errors.Is(err, errAPIKeyMode):
+		return true, ""
+	default:
 		return false, detectReason(err)
 	}
-	return true, ""
 }
 
 // detectReason renders an error as a Detect reason: final user-facing text
@@ -125,6 +130,12 @@ func detectReason(err error) string {
 func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 	cred, err := p.resolveCredential(ctx)
 	if err != nil {
+		if errors.Is(err, errAPIKeyMode) {
+			// credstore wraps every non-not-found loader error with
+			// "credential store: ", but this message is already the final
+			// user-facing sentence, so it is reported without that prefix.
+			return nil, errAPIKeyMode
+		}
 		// Returned as-is: the message is already final, prefix-free text
 		// (internal/usage renders untyped errors verbatim) and the typed
 		// errors still match errors.Is/errors.As.
@@ -147,7 +158,13 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 		Client:  p.client,
 	}, &resp)
 	if err != nil {
-		return nil, fmt.Errorf("usage: %w", err)
+		return nil, fmt.Errorf("fetch usage: %w", err)
+	}
+	// A response that mentions no rate limit at all — a bare null, an empty
+	// object, credits only — is a broken or unexpected shape, not an account
+	// with nothing to report; saying so beats printing nothing.
+	if !resp.HasRateLimit && !resp.HasAdditional {
+		return nil, errNoRateLimits
 	}
 	return p.windows(resp, cred), nil
 }
@@ -226,12 +243,21 @@ func additionalName(name, position string) string {
 
 // --- usage response ---------------------------------------------------------
 
+// errNoRateLimits reports a usage response that carried neither a main rate
+// limit nor any additional ones. Worded as final user-facing text, since
+// internal/usage renders an untyped error verbatim.
+var errNoRateLimits = errors.New("usage response carried no rate limits")
+
 // usageResponse is the part of GET /backend-api/wham/usage qmeter reads.
 // "credits" and anything else the endpoint adds are ignored.
 type usageResponse struct {
-	PlanType   string
-	RateLimit  rateLimit
-	Additional []additionalLimit
+	PlanType string
+
+	RateLimit    rateLimit
+	HasRateLimit bool
+
+	Additional    []additionalLimit
+	HasAdditional bool
 }
 
 // UnmarshalJSON decodes the response tolerantly: unknown fields are ignored,
@@ -243,9 +269,13 @@ func (r *usageResponse) UnmarshalJSON(data []byte) error {
 		case "plantype":
 			r.PlanType = decodeString(raw)
 		case "ratelimit":
-			_ = json.Unmarshal(raw, &r.RateLimit)
+			if !isJSONNull(raw) && json.Unmarshal(raw, &r.RateLimit) == nil {
+				r.HasRateLimit = true
+			}
 		case "additionalratelimits":
-			_ = json.Unmarshal(raw, &r.Additional)
+			if !isJSONNull(raw) && json.Unmarshal(raw, &r.Additional) == nil {
+				r.HasAdditional = true
+			}
 		}
 	})
 }
@@ -412,6 +442,12 @@ func decodeString(raw json.RawMessage) string {
 		return ""
 	}
 	return s
+}
+
+// isJSONNull reports whether a raw value is an explicit null, which this
+// package reads as "the endpoint said nothing here" rather than as a value.
+func isJSONNull(raw json.RawMessage) bool {
+	return strings.TrimSpace(string(raw)) == "null"
 }
 
 // decodeNumber reads a JSON number, also accepting one spelled as a string,
