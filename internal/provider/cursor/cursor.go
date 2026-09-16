@@ -114,7 +114,11 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 	if err := httpx.Get(ctx, opts, &summary); err != nil {
 		return nil, fmt.Errorf("fetch usage summary: %w", err)
 	}
-	return summary.windows(p.ID()), nil
+	// windows' errors already name the usage summary, so they are returned
+	// unwrapped rather than doubling the words. Either way nothing here ever
+	// prefixes an error with "cursor": the renderer puts the provider name in
+	// its own column.
+	return summary.windows(p.ID())
 }
 
 // usageSummaryURL is the route A endpoint.
@@ -165,16 +169,24 @@ type usageSummary struct {
 
 	IndividualUsage struct {
 		Plan struct {
-			// Enabled false means this account has no plan usage to report;
-			// Fetch then returns no windows at all.
-			Enabled   bool    `json:"enabled"`
+			// Enabled is a pointer so an absent key is distinguishable from
+			// an explicit false: the first means the response shape moved
+			// under us (or individualUsage was null or renamed), the second
+			// that this account genuinely has no individual plan usage.
+			// Both are reported as errors, never as "no windows".
+			Enabled   *bool   `json:"enabled"`
 			Used      float64 `json:"used"`
 			Limit     float64 `json:"limit"`
 			Remaining float64 `json:"remaining"`
 
-			AutoPercentUsed  float64 `json:"autoPercentUsed"`
-			APIPercentUsed   float64 `json:"apiPercentUsed"`
-			TotalPercentUsed float64 `json:"totalPercentUsed"`
+			// The two percentages this provider actually reports are
+			// pointers for the same reason: rendering an absent value as
+			// 0.0% would claim the account has used nothing, which is the
+			// opposite of not knowing. APIPercentUsed is not surfaced, so a
+			// plain float64 is enough for it.
+			AutoPercentUsed  *float64 `json:"autoPercentUsed"`
+			APIPercentUsed   float64  `json:"apiPercentUsed"`
+			TotalPercentUsed *float64 `json:"totalPercentUsed"`
 		} `json:"plan"`
 
 		// OnDemand is parsed for completeness; its limit and remaining are
@@ -188,24 +200,43 @@ type usageSummary struct {
 	} `json:"individualUsage"`
 }
 
+// errNoPlanEnabled is returned when individualUsage.plan.enabled is absent
+// altogether — an empty or null body, a null or renamed individualUsage, or a
+// plan object that no longer carries the key.
+var errNoPlanEnabled = errors.New("usage summary has no individualUsage.plan.enabled field; the response shape may have changed")
+
+// errNoPercentages is returned when the response omits the two percentages
+// this provider reports.
+var errNoPercentages = errors.New("usage summary is missing totalPercentUsed/autoPercentUsed")
+
 // windows normalizes the response into exactly two windows, "total" and
 // "auto", in that order — the plan's primary window first. Both describe the
 // same billing cycle, so both carry the same ResetsAt and Period.
 //
-// A plan that is not enabled yields no windows and no error: there is nothing
-// to report for the account, which is not a failure.
-func (s usageSummary) windows(id string) []provider.Window {
-	if !s.IndividualUsage.Plan.Enabled {
-		return nil
+// It never returns an empty slice with a nil error: an account with nothing
+// to report and a response qmeter can no longer read look identical once the
+// windows are gone, and "no windows" renders as silence rather than as a
+// problem. Every such case comes back as an error instead, worded so the
+// failure line says which of the two it was.
+func (s usageSummary) windows(id string) ([]provider.Window, error) {
+	plan := s.IndividualUsage.Plan
+	switch {
+	case plan.Enabled == nil:
+		return nil, errNoPlanEnabled
+	case !*plan.Enabled:
+		return nil, fmt.Errorf(
+			"no individual plan usage for this account (membershipType %q); team and enterprise pooled usage is not read yet",
+			s.MembershipType)
+	case plan.TotalPercentUsed == nil || plan.AutoPercentUsed == nil:
+		return nil, errNoPercentages
 	}
 	resetsAt, period := s.billingCycle()
-	plan := s.IndividualUsage.Plan
 	return []provider.Window{
 		{
 			Provider:    id,
 			Name:        "total",
 			Plan:        s.MembershipType,
-			UsedPercent: plan.TotalPercentUsed,
+			UsedPercent: *plan.TotalPercentUsed,
 			ResetsAt:    resetsAt,
 			Period:      period,
 		},
@@ -213,17 +244,22 @@ func (s usageSummary) windows(id string) []provider.Window {
 			Provider:    id,
 			Name:        "auto",
 			Plan:        s.MembershipType,
-			UsedPercent: plan.AutoPercentUsed,
+			UsedPercent: *plan.AutoPercentUsed,
 			ResetsAt:    resetsAt,
 			Period:      period,
 		},
-	}
+	}, nil
 }
 
 // billingCycle converts the cycle bounds into a reset time and a period.
-// Unparsable or absent bounds yield zero values rather than an error: the
-// percentages are still worth reporting, and the renderer prints "-" for a
-// zero ResetsAt.
+// Unusable bounds yield zero values rather than an error — the percentages
+// are still worth reporting, and the renderer prints "-" for a zero ResetsAt:
+//
+//   - an unparsable END leaves both zero, since nothing can be said about the
+//     cycle without it;
+//   - an unparsable start, or a start not before the end, keeps the reset
+//     time and leaves only the Period zero, because a period needs both
+//     bounds but a reset time does not.
 func (s usageSummary) billingCycle() (resetsAt time.Time, period time.Duration) {
 	end, err := time.Parse(time.RFC3339, s.BillingCycleEnd)
 	if err != nil {
