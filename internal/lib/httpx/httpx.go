@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -106,6 +107,12 @@ func do(ctx context.Context, method string, opts Options, body []byte, out any) 
 		return nil
 	}
 	if err := json.NewDecoder(limited).Decode(out); err != nil {
+		// The decoder reports a wholly empty body as io.EOF, which on its
+		// own reads as a bare "EOF"; say what actually happened.
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("httpx: %s %s: empty response body (status %d)",
+				method, opts.URL, resp.StatusCode)
+		}
 		return fmt.Errorf("httpx: decode %s response: %w", opts.URL, err)
 	}
 	return nil
