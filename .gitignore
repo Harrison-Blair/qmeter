@@ -15,3 +15,6 @@
 # Repo config
 !.gitignore
 !.github/**
+
+# Test fixtures
+!**/testdata/**
