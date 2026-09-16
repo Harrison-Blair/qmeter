@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -11,8 +12,94 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
+	iupdate "github.com/Harrison-Blair/qmeter/internal/update"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
+
+// captureHint replaces the passive update hint with a recorder, so no test
+// in this package reaches github.com, and returns the writers it was handed
+// (one per call).
+func captureHint(t *testing.T) *[]io.Writer {
+	t.Helper()
+	saved := hint
+	t.Cleanup(func() { hint = saved })
+	var calls []io.Writer
+	hint = func(_ context.Context, w io.Writer, _ iupdate.HintOptions) {
+		calls = append(calls, w)
+	}
+	return &calls
+}
+
+func TestCmd_TextOutputPrintsTheUpdateHintToStderr(t *testing.T) {
+	calls := captureHint(t)
+	root, _, errOut := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("hint ran %d times, want exactly 1", len(*calls))
+	}
+	if (*calls)[0] != errOut {
+		t.Fatal("the hint was not written to the command's stderr")
+	}
+}
+
+func TestCmd_JSONOutputNeverChecksForUpdates(t *testing.T) {
+	calls := captureHint(t)
+	root, _, _ := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage", "--json"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("hint ran %d times in JSON mode, want 0", len(*calls))
+	}
+}
+
+func TestCmd_CancelledRunNeverChecksForUpdates(t *testing.T) {
+	calls := captureHint(t)
+	root, _, _ := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("hint ran %d times on a cancelled run, want 0", len(*calls))
+	}
+}
+
+func TestCmd_UnknownProviderNeverChecksForUpdates(t *testing.T) {
+	calls := captureHint(t)
+	root, _, _ := newTestRoot(t,
+		providertest.Succeeding("claude", []provider.Window{window("claude", "5h")}),
+	)
+	root.SetArgs([]string{"usage", "--provider", "nope"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("hint ran %d times on a failed run, want 0", len(*calls))
+	}
+}
+
+func TestCmd_DefaultsToTheRealHint(t *testing.T) {
+	if hint == nil {
+		t.Fatal("hint is nil")
+	}
+}
 
 // newTestRoot builds a root command shaped like cmd/root.go — the
 // persistent --json flag and SilenceUsage — with the usage subcommand
