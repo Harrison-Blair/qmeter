@@ -2,6 +2,7 @@ package opencodego
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,5 +72,23 @@ func TestDefaultPath_Linux(t *testing.T) {
 	}
 	if strings.HasPrefix(got, profile) {
 		t.Errorf("credentialPathFor(\"linux\") = %q, want it under $HOME (%s), not %%USERPROFILE%%", got, home)
+	}
+}
+
+func TestDefaultPath_UsesRuntimeGOOS(t *testing.T) {
+	home, profile := setHomes(t)
+
+	// The seam is only worth having if defaultCredentialPath actually hands
+	// it runtime.GOOS rather than a platform baked in at call time. With the
+	// two home variables pointing at different directories, the one that
+	// comes back says which platform was asked for, so a hardcoded argument
+	// fails here on every host it is not the truth for.
+	want := wantPath(home)
+	if runtime.GOOS == windowsGOOS {
+		want = wantPath(profile)
+	}
+
+	if got := defaultCredentialPath(); got != want {
+		t.Errorf("defaultCredentialPath() = %q, want %q (runtime.GOOS = %q)", got, want, runtime.GOOS)
 	}
 }
