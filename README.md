@@ -1,8 +1,22 @@
-# qmeter
+```text
+                         _
+  __ _  _ __ ___    ___ | |_  ___  _ __
+ / _` || '_ ` _ \  / _ \| __|/ _ \| '__|
+| (_| || | | | | ||  __/| |_|  __/| |
+ \__, ||_| |_| |_| \___| \__|\___||_|
+    |_|
+```
 
 [![Version](https://img.shields.io/github/v/release/Harrison-Blair/qmeter?label=version)](https://github.com/Harrison-Blair/qmeter/releases/latest)
 
 A CLI tool to see your AI subscription usage limits
+
+## Supported providers
+
+- Claude
+- Codex
+- OpenCode Go
+- Cursor
 
 ## Dashboard
 
