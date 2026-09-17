@@ -47,6 +47,14 @@ const (
 	// requires, sent verbatim as "anthropic-beta: oauth-2025-04-20".
 	betaHeader  = "anthropic-beta"
 	betaVersion = "oauth-2025-04-20"
+
+	// userAgent is sent verbatim. Cloudflare in front of the usage endpoint
+	// keys its rate-limit bucket on the User-Agent: anything not prefixed
+	// "claude-code" lands in a bucket that answers 429 (retry-after: 0) to
+	// every request, however slow, and stays locked for a long time. Under
+	// the prefix the bucket allowed about ten requests per five minutes
+	// (measured 2026-09-16); a 429 there carries a real retry-after.
+	userAgent = "claude-code/qmeter"
 )
 
 var _ provider.Provider = (*Provider)(nil)
@@ -175,6 +183,7 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 		Headers: map[string]string{
 			"Authorization": "Bearer " + cred.AccessToken,
 			betaHeader:      betaVersion,
+			"User-Agent":    userAgent,
 		},
 		Client: p.client,
 	}

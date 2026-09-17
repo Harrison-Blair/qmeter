@@ -397,6 +397,9 @@ func TestFetch_ParsesFourWindows(t *testing.T) {
 	if got, want := header.Get("anthropic-beta"), "oauth-2025-04-20"; got != want {
 		t.Errorf("anthropic-beta = %q, want %q", got, want)
 	}
+	if got, want := header.Get("User-Agent"), "claude-code/qmeter"; got != want {
+		t.Errorf("User-Agent = %q, want %q", got, want)
+	}
 }
 
 func TestFetch_EnvOverrideLeavesPlanEmpty(t *testing.T) {
