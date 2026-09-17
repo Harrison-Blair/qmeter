@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	idash "github.com/Harrison-Blair/qmeter/internal/dash"
+	dconfig "github.com/Harrison-Blair/qmeter/internal/dash/config"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
 	iupdate "github.com/Harrison-Blair/qmeter/internal/update"
@@ -26,9 +29,10 @@ type testRoot struct {
 	out    *bytes.Buffer
 	errOut *bytes.Buffer
 
-	hints []io.Writer          // one entry per update-hint call
-	runs  []idash.RunOptions   // one entry per dashboard run
-	fakes []*providertest.Fake // the stubbed registry, in order
+	hints       []io.Writer          // one entry per update-hint call
+	runs        []idash.RunOptions   // one entry per dashboard run
+	fakes       []*providertest.Fake // the stubbed registry, in order
+	configLoads int
 }
 
 func newTestRoot(t *testing.T, terminal bool) *testRoot {
@@ -43,9 +47,9 @@ func newTestRoot(t *testing.T, terminal bool) *testRoot {
 		},
 	}
 
-	savedRegistry, savedHint, savedRun, savedTerm := registry, hint, run, stdoutIsTerminal
+	savedRegistry, savedHint, savedRun, savedTerm, savedLoad := registry, hint, run, stdoutIsTerminal, loadConfig
 	t.Cleanup(func() {
-		registry, hint, run, stdoutIsTerminal = savedRegistry, savedHint, savedRun, savedTerm
+		registry, hint, run, stdoutIsTerminal, loadConfig = savedRegistry, savedHint, savedRun, savedTerm, savedLoad
 	})
 
 	registry = func() []provider.Provider {
@@ -63,6 +67,10 @@ func newTestRoot(t *testing.T, terminal bool) *testRoot {
 		return nil
 	}
 	stdoutIsTerminal = func() bool { return terminal }
+	loadConfig = func() (dconfig.Settings, error) {
+		tr.configLoads++
+		return dconfig.Default(), nil
+	}
 
 	root := &cobra.Command{Use: "qmeter", SilenceUsage: true}
 	root.PersistentFlags().Bool("json", false, "output JSON")
@@ -233,6 +241,80 @@ func TestCmd_TerminalRunsTheDashboard(t *testing.T) {
 	}
 }
 
+func TestCmd_InteractiveDashboardLoadsAndPassesConfiguration(t *testing.T) {
+	tr := newTestRoot(t, true)
+	want := dconfig.Default()
+	want.MeterWidth = 83
+	want.Theme.Claude.Light = "#010203"
+	want.RefreshInterval = 17 * time.Second
+	loadConfig = func() (dconfig.Settings, error) {
+		tr.configLoads++
+		return want, nil
+	}
+
+	if err := tr.execute(t); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if tr.configLoads != 1 {
+		t.Fatalf("configuration loaded %d times, want 1", tr.configLoads)
+	}
+	if len(tr.runs) != 1 {
+		t.Fatalf("dashboard ran %d times, want 1", len(tr.runs))
+	}
+	if got := tr.runs[0]; got.MeterWidth != want.MeterWidth || got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
+		t.Errorf("dashboard settings = (%d, %#v, %s), want (%d, %#v, %s)",
+			got.MeterWidth, got.Theme, got.RefreshInterval, want.MeterWidth, want.Theme, want.RefreshInterval)
+	}
+}
+
+func TestCmd_InvalidConfigurationWarnsOnceAndUsesAllDefaults(t *testing.T) {
+	tr := newTestRoot(t, true)
+	loadConfig = func() (dconfig.Settings, error) {
+		tr.configLoads++
+		partial := dconfig.Default()
+		partial.MeterWidth = 83
+		partial.Theme.Claude.Light = "#010203"
+		partial.RefreshInterval = 17 * time.Second
+		return partial, errors.New("/tmp/qmeter/config.toml: invalid color")
+	}
+
+	if err := tr.execute(t); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	wantWarning := "warning: /tmp/qmeter/config.toml: invalid color\n"
+	if got := tr.errOut.String(); got != wantWarning {
+		t.Errorf("stderr = %q, want %q", got, wantWarning)
+	}
+	if len(tr.runs) != 1 {
+		t.Fatalf("dashboard ran %d times, want 1", len(tr.runs))
+	}
+	want := dconfig.Default()
+	if got := tr.runs[0]; got.MeterWidth != want.MeterWidth || got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
+		t.Errorf("dashboard did not use all defaults after invalid config: %#v", got)
+	}
+}
+
+func TestCmd_NonInteractiveRoutesDoNotLoadDashboardConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal bool
+		args     []string
+	}{
+		{"piped", false, nil},
+		{"json", true, []string{"--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTestRoot(t, tc.terminal)
+			if err := tr.execute(t, tc.args...); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if tr.configLoads != 0 {
+				t.Errorf("configuration loaded %d times, want 0", tr.configLoads)
+			}
+		})
+	}
+}
+
 func TestCmd_NoBannerReachesTheDashboard(t *testing.T) {
 	tr := newTestRoot(t, true)
 
@@ -305,7 +387,7 @@ func TestCmd_ValidProvidersMatchesTheRealRegistry(t *testing.T) {
 }
 
 func TestCmd_DefaultsToTheRealCollaborators(t *testing.T) {
-	if registry == nil || hint == nil || run == nil || stdoutIsTerminal == nil {
+	if registry == nil || hint == nil || run == nil || stdoutIsTerminal == nil || loadConfig == nil {
 		t.Fatal("a collaborator is nil")
 	}
 	// Calling it proves the default reads the real stdout rather than

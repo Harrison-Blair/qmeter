@@ -1,13 +1,17 @@
 package layout_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
+	"github.com/Harrison-Blair/qmeter/internal/dash/gauge"
 	"github.com/Harrison-Blair/qmeter/internal/dash/layout"
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 	"github.com/charmbracelet/lipgloss"
@@ -122,18 +126,262 @@ func TestEveryLineIsExactlyWidthCells(t *testing.T) {
 }
 
 func TestTwoColumnsFromEightyOneColumnBelow(t *testing.T) {
-	// At 80 the two top sections share a line; at the 36-cell floor they
-	// cannot, so every section owns its own lines.
-	wide := layout.Render(sample(), 80, opts(false))
+	// Default 50-cell meters pack two columns only once each can retain its
+	// 40-cell responsive floor.
+	wide := layout.Render(sample(), 110, opts(false))
 	if !hasLineWith(wide, "◆ claude", "● codex") {
-		t.Error("at width 80 claude and codex do not share a header line")
+		t.Error("at width 110 claude and codex do not share a header line")
 	}
-	narrow := layout.Render(sample(), 36, opts(false))
+	narrow := layout.Render(sample(), 109, opts(false))
 	if hasLineWith(narrow, "◆ claude", "● codex") {
-		t.Error("at width 36 claude and codex share a header line, want one column")
+		t.Error("at width 109 claude and codex share a header line, want one column")
 	}
 	if !hasLineWith(narrow, "◆ claude") || !hasLineWith(narrow, "● codex") {
-		t.Error("at width 36 a section is missing")
+		t.Error("at width 109 a section is missing")
+	}
+}
+
+func TestResponsiveMeterWidthBoundaries(t *testing.T) {
+	tests := []struct {
+		width      int
+		columns    int
+		gaugeWidth int
+	}{
+		{35, 0, 0},
+		{36, 1, 22},
+		{53, 1, 39},
+		{54, 1, 40},
+		{64, 1, 50},
+		{65, 1, 50},
+		{109, 1, 50},
+		{110, 2, 40},
+		{119, 2, 44},
+		{120, 2, 44},
+		{131, 2, 49},
+		{132, 2, 50},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("width_%d", tc.width), func(t *testing.T) {
+			got := layout.Render(sample(), tc.width, opts(false))
+			if tc.columns == 0 {
+				if line := strings.TrimSpace(got[0]); line != "terminal too narrow" {
+					t.Fatalf("line = %q, want terminal too narrow", line)
+				}
+				return
+			}
+			first := findLine(t, got, "◆ claude")
+			hasTwo := strings.Contains(first, "● codex")
+			if (tc.columns == 2) != hasTwo {
+				t.Errorf("columns at width %d = %d, want %d", tc.width, map[bool]int{false: 1, true: 2}[hasTwo], tc.columns)
+			}
+			widths := renderedGaugeWidths(got)
+			if len(widths) == 0 || widths[0] != tc.gaugeWidth {
+				t.Fatalf("gauge widths = %v, want first width %d", widths, tc.gaugeWidth)
+			}
+			if tc.columns == 2 {
+				for _, width := range widths {
+					if width < 40 {
+						t.Fatalf("packed gauge width = %d, want at least 40", width)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestOneProviderAlwaysUsesTheFullColumn(t *testing.T) {
+	res := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68},
+	}}
+	for _, width := range []int{80, 110} {
+		got := renderedGaugeWidths(layout.Render(res, width, opts(false)))
+		if len(got) != 1 || got[0] != 50 {
+			t.Errorf("width %d: gauge widths = %v, want [50]", width, got)
+		}
+	}
+}
+
+func TestCustomMeterTargetsUseTheirResponsivePackedFloor(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    int
+		pageWidth int
+		wantGauge int
+	}{
+		{"minimum endpoint", 22, 74, 22},
+		{"forty", 40, 110, 40},
+		{"seventy five growing", 75, 152, 60},
+		{"seventy five reached", 75, 182, 75},
+		{"maximum endpoint growing", 200, 352, 160},
+		{"maximum endpoint reached", 200, 432, 200},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o := opts(false)
+			o.MeterWidth = tc.target
+			got := renderedGaugeWidths(layout.Render(sample(), tc.pageWidth, o))
+			if len(got) == 0 || got[0] != tc.wantGauge {
+				t.Fatalf("gauge widths = %v, want first %d", got, tc.wantGauge)
+			}
+		})
+	}
+}
+
+func TestCappedWindowBlockIsCenteredAsAUnit(t *testing.T) {
+	res := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68, RateLimited: true},
+	}}
+	got := layout.Render(res, 100, opts(false))
+	title := findLine(t, got, "▸ 5h")
+	bezel := findLine(t, got, "[RL]")
+	track := findLine(t, got, "68.0%")
+	scale := findLine(t, got, "100")
+
+	// A 50-cell gauge plus 14 cells of furniture is a 64-cell block. The
+	// 36 spare cells split evenly inside this 100-cell provider column.
+	if col := runeColumn(title, "▸"); col != 18 {
+		t.Errorf("title starts at column %d, want 18", col)
+	}
+	if col := runeColumn(bezel, "╭"); col != 25 {
+		t.Errorf("bezel starts at column %d, want 25", col)
+	}
+	if col := runeColumn(track, "6"); col != 19 {
+		t.Errorf("percentage starts at column %d, want 19", col)
+	}
+	if col := runeColumn(scale, "0"); col != 26 {
+		t.Errorf("scale starts at column %d, want 26", col)
+	}
+	if col := runeColumn(bezel, "[RL]"); col != 78 {
+		t.Errorf("badge starts at column %d, want 78", col)
+	}
+
+	odd := layout.Render(res, 101, opts(false))
+	oddTitle := findLine(t, odd, "▸ 5h")
+	oddBadge := findLine(t, odd, "[RL]")
+	if col := runeColumn(oddTitle, "▸"); col != 18 {
+		t.Errorf("odd-slack title starts at column %d, want 18", col)
+	}
+	if trailing := len([]rune(oddBadge)) - len([]rune(strings.TrimRight(oddBadge, " "))); trailing != 19 {
+		t.Errorf("odd-slack row has %d trailing cells, want 19 (the extra cell on the right)", trailing)
+	}
+}
+
+func TestOddFinalProviderKeepsTheGridColumnGeometry(t *testing.T) {
+	res := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: "5h", RemainingPercent: 50},
+		{Provider: "codex", Name: "weekly", RemainingPercent: 50},
+		{Provider: "cursor", Name: "monthly", RemainingPercent: 50},
+	}}
+	got := renderedGaugeWidths(layout.Render(res, 110, opts(false)))
+	if len(got) != 3 {
+		t.Fatalf("gauge widths = %v, want three", got)
+	}
+	for i, width := range got {
+		if width != 40 {
+			t.Errorf("gauge %d width = %d, want 40", i, width)
+		}
+	}
+}
+
+func TestProviderThemeColorsIdentityPlanAndBannerButNotHealth(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	th := theme.Theme{
+		Claude:     lipgloss.AdaptiveColor{Light: "#101011", Dark: "#202021"},
+		Codex:      lipgloss.AdaptiveColor{Light: "#303031", Dark: "#404041"},
+		OpenCodeGo: lipgloss.AdaptiveColor{Light: "#505051", Dark: "#606061"},
+		Cursor:     lipgloss.AdaptiveColor{Light: "#707071", Dark: "#808081"},
+	}
+	o := opts(true)
+	o.Theme = th
+
+	for _, tc := range []struct {
+		name string
+		dark bool
+	}{
+		{"light background", false},
+		{"dark background", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lipgloss.SetHasDarkBackground(tc.dark)
+			got := layout.Render(sample(), 132, o)
+			for i, art := range banner.Rows() {
+				want := expectedBannerRow(art, th)
+				if strings.TrimRight(got[i], " ") != want {
+					t.Errorf("banner row %d:\ngot  %q\nwant %q", i, strings.TrimRight(got[i], " "), want)
+				}
+			}
+
+			page := strings.Join(got, "\n")
+			accent := th.Accent("claude")
+			for _, want := range []string{
+				lipgloss.NewStyle().Foreground(accent).Faint(true).Render("─ "),
+				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("◆ "),
+				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("claude"),
+				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("▸ "),
+				lipgloss.NewStyle().Foreground(accent).Render("max"),
+				lipgloss.NewStyle().Foreground(gauge.Band(68, false)).Bold(true).Render("68.0%"),
+			} {
+				if !strings.Contains(page, want) {
+					t.Errorf("page does not contain styled fragment %q", want)
+				}
+			}
+		})
+	}
+}
+
+func TestUnknownProviderUsesNeutralAdaptiveIdentity(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.SetHasDarkBackground(false)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	res := usage.Result{Windows: []provider.Window{
+		{Provider: "future", Name: "monthly", Plan: "pro", RemainingPercent: 50},
+	}}
+	o := opts(false)
+	o.Theme = theme.Theme{OpenCodeGo: lipgloss.AdaptiveColor{Light: "#010203", Dark: "#040506"}}
+	page := strings.Join(layout.Render(res, 80, o), "\n")
+	neutral := lipgloss.AdaptiveColor{Light: "#656363", Dark: "#B7B1B1"}
+	for _, want := range []string{
+		lipgloss.NewStyle().Foreground(neutral).Bold(true).Render("• "),
+		lipgloss.NewStyle().Foreground(neutral).Render("pro"),
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page does not contain neutral fragment %q", want)
+		}
+	}
+}
+
+func TestNoColorProfileLeavesAConfiguredThemeUnstyled(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	o := opts(true)
+	o.Theme = theme.Theme{
+		Claude: lipgloss.AdaptiveColor{Light: "#010203", Dark: "#040506"},
+	}
+	got := strings.Join(layout.Render(sample(), 132, o), "\n")
+	if strings.Contains(got, "\x1b") {
+		t.Fatalf("ASCII/NO_COLOR render contains an escape sequence: %q", got)
+	}
+	if !strings.Contains(got, "◆ claude") || !strings.Contains(got, "68.0%") {
+		t.Fatal("unstyled render lost dashboard content")
+	}
+}
+
+func TestBannerBandsDoNotDependOnPresentOrFilteredProviders(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	lipgloss.SetHasDarkBackground(true)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	o := opts(true)
+	one := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 50}}}
+	all := layout.Render(sample(), 132, o)[:banner.Height]
+	filtered := layout.Render(one, 132, o)[:banner.Height]
+	empty := layout.Render(usage.Result{}, 132, o)[:banner.Height]
+	for i := 0; i < banner.Height; i++ {
+		if filtered[i] != all[i] || empty[i] != all[i] {
+			t.Errorf("banner row %d depends on result presence", i)
+		}
 	}
 }
 
@@ -228,7 +476,7 @@ func TestBlankLineBetweenSectionRowsOnlyFromOneHundred(t *testing.T) {
 }
 
 func TestSectionsFollowRegistryOrderRowMajor(t *testing.T) {
-	got := layout.Render(sample(), 80, opts(false))
+	got := layout.Render(sample(), 110, opts(false))
 	first := findLine(t, got, "◆ claude")
 	if !strings.Contains(first, "● codex") {
 		t.Errorf("the first section row is not claude then codex: %q", first)
@@ -265,7 +513,7 @@ func TestSummaryLineOmitsZeroCounts(t *testing.T) {
 	res := usage.Result{Windows: []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 50},
 	}}
-	got := layout.Render(res, 80, opts(false))
+	got := layout.Render(res, 110, opts(false))
 	if line := strings.TrimRight(got[0], " "); line != "qmeter · 1 window" {
 		t.Errorf("got %q, want %q", line, "qmeter · 1 window")
 	}
@@ -308,7 +556,7 @@ func TestProviderOutsideTheRegistryIsStillDrawn(t *testing.T) {
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 50, ResetsAt: now.Add(time.Hour)},
 		{Provider: "newcomer", Name: "monthly", Plan: "pro", RemainingPercent: 10, ResetsAt: now.Add(time.Hour)},
 	}}
-	got := layout.Render(res, 80, opts(false))
+	got := layout.Render(res, 110, opts(false))
 	if !hasLineWith(got, "newcomer") {
 		t.Fatalf("a provider the layout has no icon for was dropped:\n%s", strings.Join(got, "\n"))
 	}
@@ -422,6 +670,64 @@ func countLinesWith(lines []string, sub string) int {
 		}
 	}
 	return n
+}
+
+func renderedGaugeWidths(lines []string) []int {
+	var widths []int
+	for _, line := range lines {
+		runes := []rune(line)
+		start := -1
+		for i, r := range runes {
+			if r != '┴' {
+				continue
+			}
+			if start < 0 {
+				start = i
+				continue
+			}
+			widths = append(widths, i-start+1)
+			start = -1
+		}
+	}
+	return widths
+}
+
+func runeColumn(line, sub string) int {
+	plain := []rune(line)
+	needle := []rune(sub)
+	for i := 0; i+len(needle) <= len(plain); i++ {
+		if string(plain[i:i+len(needle)]) == sub {
+			return i
+		}
+	}
+	return -1
+}
+
+func expectedBannerRow(art string, th theme.Theme) string {
+	colors := []lipgloss.TerminalColor{
+		th.Accent("claude"),
+		th.Accent("codex"),
+		th.Accent("opencode-go"),
+		th.Accent("cursor"),
+	}
+	runes := []rune(art)
+	var out strings.Builder
+	for i := 0; i < len(runes); {
+		band := i / 10
+		space := runes[i] == ' '
+		j := i + 1
+		for j < len(runes) && j/10 == band && (runes[j] == ' ') == space {
+			j++
+		}
+		text := string(runes[i:j])
+		if space {
+			out.WriteString(text)
+		} else {
+			out.WriteString(lipgloss.NewStyle().Foreground(colors[band]).Render(text))
+		}
+		i = j
+	}
+	return out.String()
 }
 
 func findLine(t *testing.T, lines []string, sub string) string {

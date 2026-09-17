@@ -21,6 +21,7 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
 	"github.com/Harrison-Blair/qmeter/internal/dash/layout"
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
@@ -28,6 +29,32 @@ import (
 // footerStyle dims the key hints: they are the one thing on the page that
 // is never about the numbers.
 var footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+// scheduleTick is the cancellable one-shot timer seam. Tests replace it so
+// the refresh state machine can be driven without waiting on wall-clock time.
+var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Time) tea.Msg) (tea.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	cmd := func() tea.Msg {
+		timer := time.NewTimer(d)
+		defer func() {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			cancel()
+		}()
+
+		select {
+		case ticked := <-timer.C:
+			return fn(ticked)
+		case <-ctx.Done():
+			return nil
+		}
+	}
+	return cmd, cancel
+}
 
 // The footer's fixed half. While a fetch is in flight `r` does nothing, so
 // the hint says what is happening instead of offering the key again — and
@@ -38,6 +65,9 @@ const (
 	busyKeyHints  = "↑↓ scroll · refreshing… · q quit"
 	firstKeyHints = "fetching… · q quit"
 	fetchingLabel = "fetching…"
+
+	// DefaultRefreshInterval keeps zero-value Options useful to direct callers.
+	DefaultRefreshInterval = 60 * time.Second
 )
 
 // Options are everything the model needs from its caller.
@@ -49,6 +79,18 @@ type Options struct {
 	// Banner draws the wordmark as the pinned header; without it the
 	// header is the one-line summary.
 	Banner bool
+
+	// Theme is the provider identity palette. The zero value uses the
+	// built-in adaptive palette.
+	Theme theme.Theme
+
+	// MeterWidth is the preferred complete gauge width. Zero uses the
+	// dashboard default.
+	MeterWidth int
+
+	// RefreshInterval is the delay after each completed fetch before the
+	// next automatic refresh. Zero uses the dashboard default.
+	RefreshInterval time.Duration
 
 	// Now is the instant countdowns are measured from, read again on
 	// every frame so they tick. Nil means time.Now.
@@ -64,10 +106,15 @@ type Options struct {
 
 // Model is the dashboard's Bubble Tea model.
 type Model struct {
-	providers []provider.Provider
-	banner    bool
-	now       func() time.Time
-	ctx       context.Context
+	providers         []provider.Provider
+	banner            bool
+	theme             theme.Theme
+	meterWidth        int
+	refreshInterval   time.Duration
+	refreshGeneration uint64
+	cancelRefresh     context.CancelFunc
+	now               func() time.Time
+	ctx               context.Context
 
 	width  int
 	height int
@@ -83,18 +130,37 @@ type resultMsg struct {
 	res usage.Result
 }
 
+// refreshMsg identifies the one-shot timer that produced it. Manual refreshes
+// invalidate the current generation, so a timer already in flight cannot
+// start an early fetch after the manual one completes.
+type refreshMsg struct {
+	generation uint64
+}
+
 // New builds the model. It starts out loading: Init's fetch is already on
 // its way by the time the first frame is drawn.
 func New(o Options) Model {
 	m := Model{
-		providers: o.Providers,
-		banner:    o.Banner,
-		now:       o.Now,
-		ctx:       o.Ctx,
-		loading:   true,
+		providers:       o.Providers,
+		banner:          o.Banner,
+		theme:           o.Theme,
+		meterWidth:      o.MeterWidth,
+		refreshInterval: o.RefreshInterval,
+		now:             o.Now,
+		ctx:             o.Ctx,
+		loading:         true,
 	}
 	if m.now == nil {
 		m.now = time.Now
+	}
+	if m.theme == (theme.Theme{}) {
+		m.theme = theme.Default()
+	}
+	if m.meterWidth == 0 {
+		m.meterWidth = layout.DefaultMeterWidth
+	}
+	if m.refreshInterval == 0 {
+		m.refreshInterval = DefaultRefreshInterval
 	}
 	if m.ctx == nil {
 		m.ctx = context.Background()
@@ -117,6 +183,29 @@ func (m Model) fetch() tea.Cmd {
 	}
 }
 
+// scheduleRefresh arms one one-shot timer after a fetch has completed.
+func (m *Model) scheduleRefresh() tea.Cmd {
+	m.cancelRefreshTimer()
+	m.refreshGeneration++
+	generation := m.refreshGeneration
+	cmd, cancel := scheduleTick(m.ctx, m.refreshInterval, func(time.Time) tea.Msg {
+		return refreshMsg{generation: generation}
+	})
+	m.cancelRefresh = cancel
+	return cmd
+}
+
+// cancelRefreshTimer is safe across the value copies Bubble Tea makes of the
+// model: context cancellation is idempotent, and the returned model drops its
+// ownership of the handle.
+func (m *Model) cancelRefreshTimer() {
+	if m.cancelRefresh == nil {
+		return
+	}
+	m.cancelRefresh()
+	m.cancelRefresh = nil
+}
+
 // Update folds one message into the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -128,7 +217,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resultMsg:
 		m.res, m.haveRes, m.loading = msg.res, true, false
 		m.offset = m.clamp(m.offset)
-		return m, nil
+		cmd := m.scheduleRefresh()
+		return m, cmd
+
+	case refreshMsg:
+		if m.loading || msg.generation != m.refreshGeneration {
+			return m, nil
+		}
+		m.cancelRefreshTimer()
+		m.loading = true
+		return m, m.fetch()
 
 	case tea.KeyMsg:
 		return m.key(msg)
@@ -147,6 +245,7 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "esc", "ctrl+c":
+		m.cancelRefreshTimer()
 		return m, tea.Quit
 	case "j", "down":
 		m.offset = m.clamp(m.offset + 1)
@@ -166,6 +265,8 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			return m, nil
 		}
+		m.cancelRefreshTimer()
+		m.refreshGeneration++
 		m.loading = true
 		return m, m.fetch()
 	}
@@ -198,7 +299,12 @@ func (m Model) View() string {
 // frame splits the page into the header that stays put and the body that
 // scrolls, and says how many body rows are on screen.
 func (m Model) frame() (header, body []string, fits int) {
-	page := layout.Render(m.res, m.width, layout.Options{Banner: m.banner, Now: m.now()})
+	page := layout.Render(m.res, m.width, layout.Options{
+		Banner:     m.banner,
+		Now:        m.now(),
+		Theme:      m.theme,
+		MeterWidth: m.meterWidth,
+	})
 
 	// The header is the banner, or the summary line that replaces it.
 	// Below MinWidth the page is a single apology, and there is nothing to

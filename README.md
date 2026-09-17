@@ -43,6 +43,59 @@ The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
 both still honour `--filter`. Colour follows [`NO_COLOR`](https://no-color.org).
 
+### Configuration
+
+The interactive dashboard reads `qmeter/config.toml` from the operating
+system's user configuration directory:
+
+- Linux and other Unix systems: `$XDG_CONFIG_HOME/qmeter/config.toml`, or
+  `~/.config/qmeter/config.toml` when `XDG_CONFIG_HOME` is unset
+- macOS: `~/Library/Application Support/qmeter/config.toml`
+- Windows: `%AppData%\qmeter\config.toml`
+
+qmeter does not create this file. Every setting is optional; a partial file is
+merged with the built-in defaults.
+
+```toml
+meter_width = 50
+refresh_interval = 60
+
+[colors.claude]
+light = "#A64526"
+dark = "#D97757"
+
+[colors.codex]
+light = "#0B6F57"
+dark = "#10A37F"
+
+[colors.opencode-go]
+light = "#656363"
+dark = "#B7B1B1"
+
+[colors.cursor]
+light = "#26251E"
+dark = "#EDECEC"
+```
+
+`light` is used on a light terminal background and `dark` on a dark terminal
+background. Colours must be six-digit hex values. `NO_COLOR` takes precedence
+over the configured palette and disables colour output.
+
+`meter_width` is the preferred complete meter width in terminal cells, from 22
+through 200. Meters grow toward that target, use one or two columns according
+to the available terminal width, and shrink only when necessary to keep the
+dashboard usable.
+
+`refresh_interval` is the number of seconds between automatic refreshes. It
+defaults to 60 and accepts values from 1 through 86400. The interval begins
+after each fetch completes, so fetches never overlap; a manual `r` refresh
+restarts the interval when that fetch completes.
+
+The configuration is used only by the interactive dashboard, not by JSON or
+piped output. If an existing file cannot be read or contains malformed,
+unknown, or invalid settings, qmeter prints one warning naming the file, ignores
+the whole file, and continues with all defaults.
+
 ## Install
 
 Linux and macOS:
