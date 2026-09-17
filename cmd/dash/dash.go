@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	idash "github.com/Harrison-Blair/qmeter/internal/dash"
+	dconfig "github.com/Harrison-Blair/qmeter/internal/dash/config"
 	iupdate "github.com/Harrison-Blair/qmeter/internal/update"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
@@ -24,6 +25,7 @@ var (
 	registry         = usage.Registry
 	hint             = iupdate.Hint
 	run              = idash.Run
+	loadConfig       = dconfig.Load
 	stdoutIsTerminal = func() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
 )
 
@@ -87,7 +89,18 @@ func Attach(root *cobra.Command) {
 			return nil
 		}
 
-		if err := run(ctx, idash.RunOptions{Providers: providers, Banner: !noBanner}); err != nil {
+		settings, configErr := loadConfig()
+		if configErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", configErr)
+			settings = dconfig.Default()
+		}
+		if err := run(ctx, idash.RunOptions{
+			Providers:       providers,
+			Banner:          !noBanner,
+			Theme:           settings.Theme,
+			MeterWidth:      settings.MeterWidth,
+			RefreshInterval: settings.RefreshInterval,
+		}); err != nil {
 			return err
 		}
 		// Only once the dashboard has given the screen back: a courtesy

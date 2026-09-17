@@ -1,6 +1,7 @@
 package dash
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
 	"github.com/Harrison-Blair/qmeter/internal/dash/layout"
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
@@ -31,8 +33,9 @@ var now = time.Date(2026, 9, 16, 14, 22, 7, 0, time.UTC)
 
 // sample is the same run internal/dash/layout's tests draw: eight windows
 // across three providers, one of them rate limited, plus one failed
-// provider and one that was never detected. At 80 cells with the banner it
-// is a 29-row page: 6 banner rows over 23 rows of body.
+// provider and one that was never detected. At 80 cells the responsive
+// 50-cell meters use one column, so with the banner it is a 44-row page: 6
+// banner rows over 38 rows of body.
 func sample() usage.Result {
 	in := func(d time.Duration) time.Time { return now.Add(d) }
 	return usage.Result{
@@ -58,6 +61,34 @@ func newModel(t *testing.T, showBanner bool, providers ...provider.Provider) Mod
 		Banner:    showBanner,
 		Now:       func() time.Time { return now },
 	})
+}
+
+func TestNewStoresDashboardAppearance(t *testing.T) {
+	th := theme.Default()
+	th.Claude.Light = "#010203"
+	m := New(Options{Theme: th, MeterWidth: 75, RefreshInterval: 17 * time.Second})
+	if m.theme != th {
+		t.Errorf("model theme = %#v, want %#v", m.theme, th)
+	}
+	if m.meterWidth != 75 {
+		t.Errorf("model meter width = %d, want 75", m.meterWidth)
+	}
+	if m.refreshInterval != 17*time.Second {
+		t.Errorf("model refresh interval = %s, want 17s", m.refreshInterval)
+	}
+}
+
+func TestNewDefaultsDashboardAppearance(t *testing.T) {
+	m := New(Options{})
+	if m.theme != theme.Default() {
+		t.Errorf("zero Options theme = %#v, want defaults %#v", m.theme, theme.Default())
+	}
+	if m.meterWidth != layout.DefaultMeterWidth {
+		t.Errorf("zero Options meter width = %d, want %d", m.meterWidth, layout.DefaultMeterWidth)
+	}
+	if m.refreshInterval != DefaultRefreshInterval {
+		t.Errorf("zero Options refresh interval = %s, want %s", m.refreshInterval, DefaultRefreshInterval)
+	}
 }
 
 // step drives one message through the model and returns the new model and
@@ -273,10 +304,10 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 		return lines[len(lines)-1]
 	}
 
-	// 6 banner rows + 23 body rows, 17 of them on screen.
+	// 6 banner rows + 38 body rows, 17 of them on screen.
 	top := footer(m)
-	if !strings.Contains(top, "↓ 6 more") {
-		t.Errorf("footer at the top = %q, want it to count 6 rows below", top)
+	if !strings.Contains(top, "↓ 21 more") {
+		t.Errorf("footer at the top = %q, want it to count 21 rows below", top)
 	}
 	if n := strings.Count(top, "more"); n != 1 {
 		t.Errorf("footer at the top = %q, want exactly one hidden-row count", top)
@@ -289,14 +320,14 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 
 	m, _ = press(t, m, "j", "j")
 	mid := footer(m)
-	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 4 more") {
-		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 4 more", mid)
+	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 19 more") {
+		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 19 more", mid)
 	}
 
 	m, _ = press(t, m, "G")
 	bottom := footer(m)
-	if !strings.Contains(bottom, "↑ 6 more") {
-		t.Errorf("footer at the bottom = %q, want ↑ 6 more", bottom)
+	if !strings.Contains(bottom, "↑ 21 more") {
+		t.Errorf("footer at the bottom = %q, want ↑ 21 more", bottom)
 	}
 	if n := strings.Count(bottom, "more"); n != 1 {
 		t.Errorf("footer at the bottom = %q, want exactly one hidden-row count", bottom)
@@ -434,6 +465,204 @@ func TestUpdate_RRefetches(t *testing.T) {
 	if m.loading {
 		t.Error("the model is still loading after its result arrived")
 	}
+}
+
+func TestAutoRefreshStartsOnlyAfterAResultAndUsesTheConfiguredInterval(t *testing.T) {
+	var intervals []time.Duration
+	saved := scheduleTick
+	t.Cleanup(func() { scheduleTick = saved })
+	scheduleTick = func(_ context.Context, d time.Duration, fn func(time.Time) tea.Msg) (tea.Cmd, context.CancelFunc) {
+		intervals = append(intervals, d)
+		return func() tea.Msg { return fn(now) }, func() {}
+	}
+
+	m := New(Options{RefreshInterval: 17 * time.Second})
+	if cmd := m.Init(); cmd == nil {
+		t.Fatal("Init returned no fetch")
+	}
+	if len(intervals) != 0 {
+		t.Fatalf("Init scheduled %d timers before the first result", len(intervals))
+	}
+
+	m, timer := step(t, m, resultMsg{res: sample()})
+	if timer == nil {
+		t.Fatal("completed initial fetch scheduled no refresh timer")
+	}
+	if len(intervals) != 1 || intervals[0] != 17*time.Second {
+		t.Fatalf("scheduled intervals = %v, want [17s]", intervals)
+	}
+	if _, ok := timer().(refreshMsg); !ok {
+		t.Fatalf("timer produced %T, want refreshMsg", timer())
+	}
+	if m.loading {
+		t.Error("model remained loading after the result")
+	}
+}
+
+func TestValidAutoRefreshNeverOverlapsAndCompletionSchedulesTheNextTimer(t *testing.T) {
+	var tokens []refreshMsg
+	saved := scheduleTick
+	t.Cleanup(func() { scheduleTick = saved })
+	scheduleTick = func(_ context.Context, _ time.Duration, fn func(time.Time) tea.Msg) (tea.Cmd, context.CancelFunc) {
+		return func() tea.Msg {
+			msg := fn(now).(refreshMsg)
+			tokens = append(tokens, msg)
+			return msg
+		}, func() {}
+	}
+
+	fake := providertest.Succeeding("claude", []provider.Window{{Name: "5h", RemainingPercent: 50}})
+	m := newModel(t, true, fake)
+	m, timer := step(t, m, resultMsg{res: sample()})
+	timerMsg := timer().(refreshMsg)
+
+	m, fetch := step(t, m, timerMsg)
+	if fetch == nil || !m.loading {
+		t.Fatal("valid timer did not start a loading fetch")
+	}
+	if _, overlap := step(t, m, timerMsg); overlap != nil {
+		t.Error("a timer while loading started an overlapping fetch")
+	}
+	if fake.Fetches() != 0 {
+		t.Fatal("provider fetched before the returned fetch command ran")
+	}
+
+	result := fetch().(resultMsg)
+	if fake.Fetches() != 1 {
+		t.Fatalf("provider fetched %d times, want 1", fake.Fetches())
+	}
+	m, nextTimer := step(t, m, result)
+	if nextTimer == nil || m.loading {
+		t.Fatal("fetch completion did not finish loading and schedule the next timer")
+	}
+	nextMsg := nextTimer().(refreshMsg)
+	if nextMsg.generation == timerMsg.generation {
+		t.Errorf("next timer reused generation %d", nextMsg.generation)
+	}
+	if len(tokens) != 2 {
+		t.Errorf("timer commands produced %d messages, want 2", len(tokens))
+	}
+}
+
+func TestManualRefreshInvalidatesTheScheduledTimerAndRestartsAfterCompletion(t *testing.T) {
+	saved := scheduleTick
+	t.Cleanup(func() { scheduleTick = saved })
+	scheduleTick = func(_ context.Context, _ time.Duration, fn func(time.Time) tea.Msg) (tea.Cmd, context.CancelFunc) {
+		return func() tea.Msg { return fn(now) }, func() {}
+	}
+
+	fake := providertest.Succeeding("claude", []provider.Window{{Name: "5h", RemainingPercent: 50}})
+	m := newModel(t, true, fake)
+	m, timer := step(t, m, resultMsg{res: sample()})
+	stale := timer().(refreshMsg)
+
+	m, manualFetch := press(t, m, "r")
+	if manualFetch == nil || !m.loading {
+		t.Fatal("manual refresh did not start a fetch")
+	}
+	if _, cmd := step(t, m, stale); cmd != nil {
+		t.Error("stale timer started a fetch while the manual refresh was loading")
+	}
+
+	result := manualFetch().(resultMsg)
+	m, nextTimer := step(t, m, result)
+	if nextTimer == nil {
+		t.Fatal("manual refresh completion scheduled no fresh timer")
+	}
+	if _, cmd := step(t, m, stale); cmd != nil {
+		t.Error("stale timer started an early fetch after manual completion")
+	}
+	if m.loading {
+		t.Error("stale timer changed the model to loading")
+	}
+	if next := nextTimer().(refreshMsg); next.generation == stale.generation {
+		t.Errorf("fresh timer reused stale generation %d", stale.generation)
+	}
+}
+
+// startPendingRefresh runs a real, hour-long timer command and returns only
+// once that command has started. The deadline is deliberately far away: these
+// tests pass only when model cancellation releases the command.
+func startPendingRefresh(t *testing.T, m Model) (Model, <-chan tea.Msg) {
+	t.Helper()
+
+	saved := scheduleTick
+	defer func() { scheduleTick = saved }()
+	started := make(chan struct{})
+	scheduleTick = func(ctx context.Context, d time.Duration, fn func(time.Time) tea.Msg) (tea.Cmd, context.CancelFunc) {
+		cmd, cancel := saved(ctx, d, fn)
+		return func() tea.Msg {
+			close(started)
+			return cmd()
+		}, cancel
+	}
+	m.refreshInterval = time.Hour
+	m, timer := step(t, m, resultMsg{res: sample()})
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- timer() }()
+	<-started
+	select {
+	case msg := <-done:
+		t.Fatalf("hour-long timer returned before cancellation with %T", msg)
+	default:
+	}
+	return m, done
+}
+
+func requireTimerReleased(t *testing.T, done <-chan tea.Msg) {
+	t.Helper()
+	select {
+	case msg := <-done:
+		if msg != nil {
+			t.Fatalf("canceled timer returned %T, want nil", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending timer command was not released after cancellation")
+	}
+}
+
+func TestManualRefreshCancelsThePendingTimerCommand(t *testing.T) {
+	m, done := startPendingRefresh(t, newModel(t, true))
+	m, fetch := press(t, m, "r")
+	if fetch == nil || !m.loading {
+		t.Fatal("manual refresh did not start a fetch")
+	}
+	requireTimerReleased(t, done)
+}
+
+func TestReplacingARefreshTimerCancelsThePendingCommand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	m, done := startPendingRefresh(t, New(Options{Ctx: ctx}))
+
+	m, replacement := step(t, m, resultMsg{res: sample()})
+	if replacement == nil {
+		t.Fatal("replacement result scheduled no new timer")
+	}
+	requireTimerReleased(t, done)
+	_, _ = press(t, m, "q")
+}
+
+func TestQuitKeysCancelThePendingTimerCommand(t *testing.T) {
+	for _, key := range []string{"q", "esc", "ctrl+c"} {
+		t.Run(key, func(t *testing.T) {
+			m, done := startPendingRefresh(t, newModel(t, true))
+			_, quit := press(t, m, key)
+			if quit == nil {
+				t.Fatalf("%q returned no quit command", key)
+			}
+			requireTimerReleased(t, done)
+		})
+	}
+}
+
+func TestParentContextCancellationReleasesThePendingTimerCommand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	_, done := startPendingRefresh(t, New(Options{Ctx: ctx}))
+
+	cancel()
+	requireTimerReleased(t, done)
 }
 
 func TestView_LoadingBeforeTheFirstResult(t *testing.T) {

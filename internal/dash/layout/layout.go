@@ -7,10 +7,11 @@
 // the page is scrolled to.
 //
 // The page is a header (the FIGlet banner, or a one-line summary) over a
-// grid of provider sections: two columns from 80 cells, one below. Each
-// section is a rule with the provider's name and plan, then four rows per
-// usage window — the window's name, the gauge bezel, the gauge itself
-// between the percentage and the countdown, and the scale:
+// grid of provider sections: up to two columns when each meter can retain its
+// responsive packed floor, one column below. Each section is a rule with the
+// provider's name and plan, then four rows per usage window — the window's
+// name, the gauge bezel, the gauge itself between the percentage and the
+// countdown, and the scale:
 //
 //	─ ◆ claude ────────────────────── max ─
 //	▸ 5h
@@ -19,10 +20,9 @@
 //	        0         50        100
 //
 // Column arithmetic is fixed at every width: percentage 6, a space, the
-// gauge, a space, countdown 6. The gauge takes whatever is left, so it is
-// the widest thing on the page and never the thing that shrinks — below a
-// 36-cell column (a 20-cell track) the layout drops to one column, and
-// below 36 cells of terminal it says so and draws nothing.
+// gauge, a space, countdown 6. A gauge grows toward the configured preference
+// and is centred with those fields as one block. Below a 36-cell terminal (a
+// 20-cell track) the layout says so and draws nothing.
 package layout
 
 import (
@@ -32,6 +32,7 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
 	"github.com/Harrison-Blair/qmeter/internal/dash/gauge"
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 	"github.com/charmbracelet/lipgloss"
@@ -47,13 +48,14 @@ const (
 	badgeWidth  = 4                                           // "[RL]"
 	MinColumn   = pctWidth + 1 + gauge.MinWidth + 1 + cdWidth // 36
 	MinWidth    = MinColumn                                   // the narrowest page that can be drawn at all
+	// DefaultMeterWidth is the preferred complete gauge width, caps included.
+	DefaultMeterWidth = 50
 )
 
 // Width thresholds, in terminal cells.
 const (
-	twoColumnWidth = 80  // two columns from here up
-	sectionGapMin  = 100 // a blank line between section rows from here up
-	wideGutterMin  = 120 // a 4-cell gutter, and a blank line under the banner, from here up
+	sectionGapMin = 100 // a blank line between section rows from here up
+	wideGutterMin = 120 // a 4-cell gutter, and a blank line under the banner, from here up
 )
 
 // Options are the page-level choices the caller makes.
@@ -66,6 +68,15 @@ type Options struct {
 	// Now is the instant countdowns are measured from. The zero value
 	// means time.Now(); tests pass a fixed instant.
 	Now time.Time
+
+	// Theme is the provider identity palette. Its zero value uses the
+	// built-in adaptive light/dark colours.
+	Theme theme.Theme
+
+	// MeterWidth is the preferred complete gauge width, caps included. Zero
+	// uses DefaultMeterWidth. It may shrink to gauge.MinWidth when the
+	// terminal cannot fit the preference.
+	MeterWidth int
 }
 
 // provInfo is a provider's presentation: the marker drawn before its name
@@ -73,7 +84,7 @@ type Options struct {
 type provInfo struct {
 	id    string
 	icon  string
-	color lipgloss.Color
+	color lipgloss.TerminalColor
 }
 
 // order is the drawing order of the sections, and must stay in step with
@@ -81,10 +92,10 @@ type provInfo struct {
 // out row-major, so at two columns the second row is opencode-go on the
 // left and cursor on the right.
 var order = []provInfo{
-	{"claude", "◆", lipgloss.Color("5")},      // magenta
-	{"codex", "●", lipgloss.Color("6")},       // cyan
-	{"opencode-go", "○", lipgloss.Color("8")}, // bright black
-	{"cursor", "▲", lipgloss.Color("4")},      // blue
+	{id: "claude", icon: "◆"},
+	{id: "codex", icon: "●"},
+	{id: "opencode-go", icon: "○"},
+	{id: "cursor", icon: "▲"},
 }
 
 // The palette outside the gauge. Provider-coloured styles are built per
@@ -93,17 +104,12 @@ var (
 	plain     = lipgloss.NewStyle()
 	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true)
-	planStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	cdStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	markStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	rlStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("1")).Bold(true)
 )
-
-// bannerRamp colours the wordmark left to right, one step per sixth of its
-// width: bright magenta into cyan.
-var bannerRamp = []lipgloss.Color{"13", "5", "12", "4", "14", "6"}
 
 // Render draws the whole page for r at width cells and returns its lines,
 // each padded to exactly width cells. It never trims the page to a height:
@@ -125,15 +131,16 @@ func Render(r usage.Result, width int, o Options) []string {
 		now = time.Now()
 	}
 
-	rows := header(r, width, o.Banner)
+	target := meterTarget(o.MeterWidth)
+	rows := header(r, width, o.Banner, o.Theme)
 
-	present := presentProviders(r)
+	present := presentProviders(r, o.Theme)
 	if len(present) == 0 {
 		rows = append(rows, row{}.put(dimStyle, "no providers detected"))
 		return finish(rows, width)
 	}
 
-	cols, colw, gutter := columns(width)
+	cols, colw, gutter := columns(width, len(present), target)
 	for i := 0; i < len(present); i += cols {
 		if i > 0 && width >= sectionGapMin {
 			rows = append(rows, row{})
@@ -142,34 +149,38 @@ func Render(r usage.Result, width int, o Options) []string {
 		if end > len(present) {
 			end = len(present)
 		}
-		rows = append(rows, sectionRow(r, present[i:end], colw, gutter, now)...)
+		rows = append(rows, sectionRow(r, present[i:end], colw, gutter, now, target)...)
 	}
 	return finish(rows, width)
 }
 
-// columns is the page's column arithmetic: two columns from
-// twoColumnWidth up, split evenly around a gutter that widens to four
-// cells on a wide terminal (a 2-cell gutter reads as a seam once the
-// columns are that long). Any odd cell is left at the right edge.
-func columns(width int) (cols, colw, gutter int) {
-	if width < twoColumnWidth {
+// columns is the page's column arithmetic: two columns only when there are at
+// least two providers and both gauges retain their responsive packed floor.
+// They split evenly around a gutter that widens to four cells on a wide
+// terminal. Any odd cell is left at the right edge.
+func columns(width, providers, target int) (cols, colw, gutter int) {
+	if providers < 2 {
 		return 1, width, 0
 	}
 	gutter = 2
 	if width >= wideGutterMin {
 		gutter = 4
 	}
+	packed := max(gauge.MinWidth, (target*4+4)/5) // ceil(target * 0.8)
+	if width < 2*(packed+pctWidth+1+1+cdWidth)+gutter {
+		return 1, width, 0
+	}
 	return 2, (width - gutter) / 2, gutter
 }
 
 // header is the banner, or the summary line that replaces it.
-func header(r usage.Result, width int, want bool) []row {
+func header(r usage.Result, width int, want bool, th theme.Theme) []row {
 	if !want || width < banner.Width {
 		return []row{summary(r, width)}
 	}
 	rows := make([]row, 0, banner.Height+1)
 	for _, art := range banner.Rows() {
-		rows = append(rows, bannerRow(art))
+		rows = append(rows, bannerRow(art, th))
 	}
 	if width >= wideGutterMin {
 		rows = append(rows, row{})
@@ -177,34 +188,33 @@ func header(r usage.Result, width int, want bool) []row {
 	return rows
 }
 
-// bannerRow colours one row of the wordmark by column, so the whole block
-// reads as one left-to-right gradient rather than six independent rows.
+// bannerRow colours one row of the wordmark in four fixed provider bands.
 // Runs of one colour are styled together, and blanks are left unstyled.
-func bannerRow(art string) row {
+func bannerRow(art string, th theme.Theme) row {
 	out := row{}
 	runes := []rune(art)
 	for i := 0; i < len(runes); {
 		j := i
-		for j < len(runes) && rampAt(j) == rampAt(i) && (runes[j] == ' ') == (runes[i] == ' ') {
+		for j < len(runes) && bannerBand(j) == bannerBand(i) && (runes[j] == ' ') == (runes[i] == ' ') {
 			j++
 		}
 		text := string(runes[i:j])
 		if runes[i] == ' ' {
 			out = out.put(plain, text)
 		} else {
-			out = out.put(lipgloss.NewStyle().Foreground(rampAt(i)), text)
+			out = out.put(lipgloss.NewStyle().Foreground(th.Accent(order[bannerBand(i)].id)), text)
 		}
 		i = j
 	}
 	return out
 }
 
-func rampAt(col int) lipgloss.Color {
-	i := col * len(bannerRamp) / banner.Width
-	if i >= len(bannerRamp) {
-		i = len(bannerRamp) - 1
+func bannerBand(col int) int {
+	i := col * len(order) / banner.Width
+	if i >= len(order) {
+		i = len(order) - 1
 	}
-	return bannerRamp[i]
+	return i
 }
 
 // summary is the one-line header: the wordmark and what the run found,
@@ -254,7 +264,7 @@ func count(n int, one, many string) string {
 // with no windows, no error and no not-detected reason is not drawn at
 // all. A provider the registry has never heard of is drawn after the ones
 // it has, so a new provider shows up even before it is listed here.
-func presentProviders(r usage.Result) []provInfo {
+func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 	seen := map[string]bool{}
 	note := func(id string) {
 		if id != "" {
@@ -276,12 +286,13 @@ func presentProviders(r usage.Result) []provInfo {
 	for _, p := range order {
 		known[p.id] = true
 		if seen[p.id] {
+			p.color = th.Accent(p.id)
 			out = append(out, p)
 		}
 	}
 	for _, id := range firstSeenOrder(r) {
 		if !known[id] {
-			out = append(out, provInfo{id: id, icon: "•", color: lipgloss.Color("8")})
+			out = append(out, provInfo{id: id, icon: "•", color: th.Accent(id)})
 		}
 	}
 	return out
@@ -311,11 +322,11 @@ func firstSeenOrder(r usage.Result) []string {
 
 // sectionRow lays one row of sections side by side, padding the shorter
 // column so the next row starts on a clean line.
-func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time) []row {
+func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, meterWidth int) []row {
 	cols := make([][]row, len(ps))
 	height := 0
 	for i, p := range ps {
-		cols[i] = section(r, p, colw, now)
+		cols[i] = section(r, p, colw, now, meterWidth)
 		if len(cols[i]) > height {
 			height = len(cols[i])
 		}
@@ -336,7 +347,7 @@ func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time) 
 
 // section is one provider's block: its rule, its windows, and whatever the
 // run has to say about it.
-func section(r usage.Result, p provInfo, colw int, now time.Time) []row {
+func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) []row {
 	var windows []provider.Window
 	for _, w := range r.Windows {
 		if w.Provider == p.id {
@@ -350,7 +361,7 @@ func section(r usage.Result, p provInfo, colw int, now time.Time) []row {
 
 	out := []row{sectionHead(p, plan, colw)}
 	for _, w := range windows {
-		out = append(out, windowBlock(w, p, colw, now)...)
+		out = append(out, windowBlock(w, p, colw, now, meterWidth)...)
 	}
 	for _, e := range r.Errors {
 		if e.Provider == p.id {
@@ -369,6 +380,7 @@ func section(r usage.Result, p provInfo, colw int, now time.Time) []row {
 func sectionHead(p provInfo, plan string, colw int) row {
 	rule := lipgloss.NewStyle().Foreground(p.color).Faint(true)
 	bold := lipgloss.NewStyle().Foreground(p.color).Bold(true)
+	planStyle := lipgloss.NewStyle().Foreground(p.color)
 
 	name := truncTail(p.id, max(1, colw-10))
 	head := row{}.put(rule, "─ ").put(bold, p.icon+" ").put(bold, name).put(plain, " ")
@@ -388,8 +400,10 @@ func sectionHead(p provInfo, plan string, colw int) row {
 //	       ╭┬────┬─────┬────┬─────┬╮   [RL]
 //	 68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m
 //	        0         50        100
-func windowBlock(w provider.Window, p provInfo, colw int, now time.Time) []row {
-	gw := gaugeWidth(colw)
+func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth int) []row {
+	gw := gaugeWidth(colw, meterWidth)
+	blockw := gw + pctWidth + 1 + 1 + cdWidth
+	left := (colw - blockw) / 2
 	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited)
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
@@ -402,24 +416,25 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time) []row {
 	arrow := lipgloss.NewStyle().Foreground(p.color).Bold(true)
 	pct := lipgloss.NewStyle().Foreground(gauge.Band(w.RemainingPercent, w.RateLimited)).Bold(true)
 
-	name := row{}.put(arrow, "▸ ").put(nameStyle, truncMid(w.Name, colw-2)).pad(colw)
+	name := row{}.put(arrow, "▸ ").put(nameStyle, truncMid(w.Name, blockw-2)).pad(blockw)
 
-	bezel := row{}.pad(gaugeIndent).raw(g.Bezel, gw).pad(colw - badgeWidth)
+	bezel := row{}.pad(gaugeIndent).raw(g.Bezel, gw).pad(blockw - badgeWidth)
 	if w.RateLimited {
 		bezel = bezel.put(rlStyle, "[RL]")
 	} else {
-		bezel = bezel.pad(colw)
+		bezel = bezel.pad(blockw)
 	}
 
 	pctText := fmt.Sprintf("%.1f%%", w.RemainingPercent)
 	track := rightAlign(row{}, pct, pctText, pctWidth).
 		pad(pctWidth+1).raw(g.Track, gw).
 		pad(pctWidth+1+gw+1).
-		put(countdownStyle(w), countdown(w, now)).pad(colw)
+		put(countdownStyle(w), countdown(w, now)).pad(blockw)
 
-	scale := row{}.pad(gaugeIndent).raw(g.Scale, gw).pad(colw)
+	scale := row{}.pad(gaugeIndent).raw(g.Scale, gw).pad(blockw)
 
-	return []row{name, bezel, track, scale}
+	center := func(r row) row { return row{}.pad(left).join(r).pad(colw) }
+	return []row{center(name), center(bezel), center(track), center(scale)}
 }
 
 // statusRow is an error or not-detected line inside a section: the glyph
@@ -481,8 +496,15 @@ func formatResets(d time.Duration) string {
 
 // gaugeWidth is what a column leaves the gauge once the percentage, the
 // countdown and their two spaces are paid for.
-func gaugeWidth(colw int) int {
-	return colw - (pctWidth + 1 + 1 + cdWidth)
+func gaugeWidth(colw, target int) int {
+	return min(target, colw-(pctWidth+1+1+cdWidth))
+}
+
+func meterTarget(configured int) int {
+	if configured == 0 {
+		return DefaultMeterWidth
+	}
+	return max(configured, gauge.MinWidth)
 }
 
 // finish pads every row to the page width and hands back plain strings.

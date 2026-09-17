@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
 )
@@ -23,6 +24,30 @@ func runOpts(in string, out *bytes.Buffer, p provider.Provider) RunOptions {
 		Banner:    true,
 		Input:     strings.NewReader(in),
 		Output:    out,
+	}
+}
+
+func TestRunOptionsReachModelOptions(t *testing.T) {
+	ctx := context.WithValue(context.Background(), struct{}{}, "bounded")
+	th := theme.Default()
+	th.Cursor.Dark = "#010203"
+	p := providertest.Succeeding("cursor", nil)
+
+	got := modelOptions(ctx, RunOptions{
+		Providers:       []provider.Provider{p},
+		Banner:          true,
+		Theme:           th,
+		MeterWidth:      83,
+		RefreshInterval: 17 * time.Second,
+	})
+	if got.Ctx != ctx || !got.Banner || len(got.Providers) != 1 || got.Providers[0] != p {
+		t.Errorf("model options lost run state: %#v", got)
+	}
+	if got.Theme != th || got.MeterWidth != 83 {
+		t.Errorf("model appearance = (%#v, %d), want (%#v, 83)", got.Theme, got.MeterWidth, th)
+	}
+	if got.RefreshInterval != 17*time.Second {
+		t.Errorf("model refresh interval = %s, want 17s", got.RefreshInterval)
 	}
 }
 

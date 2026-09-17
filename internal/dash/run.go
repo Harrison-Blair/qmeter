@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -19,6 +21,18 @@ type RunOptions struct {
 
 	// Banner draws the wordmark as the pinned header.
 	Banner bool
+
+	// Theme is the provider identity palette. Its zero value uses the
+	// built-in adaptive palette.
+	Theme theme.Theme
+
+	// MeterWidth is the preferred complete gauge width. Zero uses the
+	// dashboard default.
+	MeterWidth int
+
+	// RefreshInterval is the delay after each completed fetch before the
+	// next automatic refresh. Zero uses the dashboard default.
+	RefreshInterval time.Duration
 
 	// Input and Output are the terminal to run on. Both nil means the
 	// process's own stdin and stdout; tests pass buffers.
@@ -37,11 +51,7 @@ func Run(ctx context.Context, opts RunOptions) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	model := New(Options{
-		Providers: opts.Providers,
-		Banner:    opts.Banner,
-		Ctx:       ctx,
-	})
+	model := New(modelOptions(ctx, opts))
 
 	popts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}
 	if opts.Input != nil {
@@ -58,4 +68,15 @@ func Run(ctx context.Context, opts RunOptions) error {
 		return err
 	}
 	return nil
+}
+
+func modelOptions(ctx context.Context, opts RunOptions) Options {
+	return Options{
+		Providers:       opts.Providers,
+		Banner:          opts.Banner,
+		Theme:           opts.Theme,
+		MeterWidth:      opts.MeterWidth,
+		RefreshInterval: opts.RefreshInterval,
+		Ctx:             ctx,
+	}
 }
