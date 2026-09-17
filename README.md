@@ -1,4 +1,7 @@
 # qmeter
+
+[![Version](https://img.shields.io/github/v/release/Harrison-Blair/qmeter?label=version)](https://github.com/Harrison-Blair/qmeter/releases/latest)
+
 A CLI tool to see your AI subscription usage limits
 
 ## Dashboard
