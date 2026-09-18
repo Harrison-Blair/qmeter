@@ -258,34 +258,33 @@ func mustRenderPace(t *testing.T, pct float64, width int, rl bool, pace float64)
 	return b
 }
 
-// TestPaceMarkerSitsUnderTheEvenSpendCell pins the marker against the
-// design: ▴ in the scale row, under the track cell the needle would occupy
-// if the window were being spent evenly, which is the fraction of the
-// window still ahead. The bezel and track are untouched by it.
-func TestPaceMarkerSitsUnderTheEvenSpendCell(t *testing.T) {
-	const width = 25 // 23 track cells
-	tests := []struct {
+// The marker occupies the bezel cell directly above the expected needle.
+func TestPaceMarkerSitsAboveTheEvenSpendCell(t *testing.T) {
+	const width = 25
+	for _, tc := range []struct {
 		name string
 		pace float64
-		want string
+		at   int
 	}{
-		{"3h38m left of a 5h window", 218.0 / 300, " 0         50    ▴   100 "},
-		{"halfway: the marker wins over the 0 of 50", 0.5, " 0         5▴        100 "},
-		{"the window is due: the marker wins over the 0", 0, " ▴         50        100 "},
-		{"the window has just reset: the marker wins over the last digit", 1, " 0         50        10▴ "},
-		{"over one is clamped", 1.5, " 0         50        10▴ "},
-		{"NoPace draws no marker", gauge.NoPace, " 0         50        100 "},
-		{"any negative pace draws no marker", -0.3, " 0         50        100 "},
-	}
-	for _, tc := range tests {
+		{"3h38m left of 5h", 218.0 / 300, 17}, {"halfway", 0.5, 12},
+		{"due", 0, 1}, {"just reset", 1, 23}, {"over one", 1.5, 23},
+		{"no pace", gauge.NoPace, -1}, {"negative", -0.3, -1},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := mustRenderPace(t, 68, width, false, tc.pace)
-			if got.Scale != tc.want {
-				t.Errorf("scale:\ngot  %q\nwant %q", got.Scale, tc.want)
-			}
 			plain := mustRender(t, 68, width, false)
-			if got.Bezel != plain.Bezel || got.Track != plain.Track {
-				t.Errorf("the pace marker changed the bezel or the track:\ngot  %+v\nwant %+v", got, plain)
+			want := []rune(plain.Bezel)
+			if tc.at >= 0 {
+				want[tc.at] = '▼'
+			}
+			if got.Bezel != string(want) {
+				t.Errorf("bezel got %q want %q", got.Bezel, string(want))
+			}
+			if got.Scale != plain.Scale || got.Track != plain.Track {
+				t.Errorf("marker altered scale or track: %+v", got)
+			}
+			if strings.ContainsAny(got.Bezel+got.Track+got.Scale, "\x1b") {
+				t.Error("plain profile contains ANSI")
 			}
 		})
 	}
@@ -295,19 +294,20 @@ func TestPaceMarkerKeepsEveryRowExactlyWidthCells(t *testing.T) {
 	for width := gauge.MinWidth; width <= 60; width++ {
 		for _, pace := range []float64{0, 0.33, 0.5, 0.99, 1} {
 			b := mustRenderPace(t, 43.5, width, false, pace)
-			if w := runewidth.StringWidth(b.Scale); w != width {
-				t.Errorf("width %d, pace %v: scale is %d cells: %q", width, pace, w, b.Scale)
+			for _, row := range []string{b.Bezel, b.Track, b.Scale} {
+				if w := runewidth.StringWidth(row); w != width {
+					t.Errorf("width %d, pace %v: scale is %d cells: %q", width, pace, w, row)
+				}
 			}
-			if !strings.Contains(b.Scale, "▴") {
-				t.Errorf("width %d, pace %v: no marker in %q", width, pace, b.Scale)
+			if !strings.Contains(b.Bezel, "▼") {
+				t.Errorf("width %d, pace %v: no marker in %q", width, pace, b.Bezel)
 			}
 		}
 	}
 }
 
 // TestPaceMarkerIsCyan: the marker is a time-derived position, so it takes
-// the countdown's colour, never a band colour, and the rest of the scale
-// row stays in the frame colour on both sides of it.
+// bright cyan and bold, never a band colour. The bezel keeps its frame colour.
 func TestPaceMarkerIsCyan(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
@@ -317,10 +317,10 @@ func TestPaceMarkerIsCyan(t *testing.T) {
 		t.Fatalf("Render returned error: %v", err)
 	}
 	frame := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	want := frame.Render(" 0         5") + cyan.Render("▴") + frame.Render("        100 ")
-	if b.Scale != want {
-		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+	want := frame.Render("╭┬────┬─────") + cyan.Render("▼") + frame.Render("────┬─────┬╮")
+	if b.Bezel != want {
+		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
 	}
 }
 
@@ -340,9 +340,9 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
 	fill := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	needle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 
-	if want := wall.Render("╭┬────┬─────┬────┬─────┬╮"); b.Bezel != want {
+	if want := wall.Render("╭┬────┬─────") + cyan.Render("▼") + wall.Render("────┬─────┬╮"); b.Bezel != want {
 		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
 	}
 	wantTrack := wall.Render("┴") + fill.Render(strings.Repeat("▰", 20)) +
@@ -350,7 +350,7 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	if b.Track != wantTrack {
 		t.Errorf("track:\ngot  %q\nwant %q", b.Track, wantTrack)
 	}
-	if want := wall.Render(" 0         5") + cyan.Render("▴") + wall.Render("        100 "); b.Scale != want {
+	if want := wall.Render(" 0         50        100 "); b.Scale != want {
 		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
 	}
 

@@ -55,7 +55,7 @@ func Attach(root *cobra.Command) {
 
 		// The filter is checked before anything is fetched, so a typo
 		// costs nothing and reads the same as `usage --provider`'s.
-		providers, unknown := idash.Select(registry(), names)
+		providers, unknown := usage.Select(registry(), names)
 		if unknown != "" {
 			msg := fmt.Sprintf("unknown provider %q (valid: %s)", unknown, validProviders)
 			fmt.Fprintln(cmd.ErrOrStderr(), msg)

@@ -1,13 +1,13 @@
 // Package gauge draws the dashboard's fuel gauge: three rows of the same
 // width — a bezel with five tick marks, a track whose needle sits at the
 // remaining percentage, and a 0/50/100 scale under it. A window that knows
-// its period also gets a pace marker in the scale row: ▴ under the track
+// its period also gets a pace marker in the bezel row: ▼ above the track
 // cell the needle would occupy if the window were being spent evenly, so
 // a needle left of the marker is being spent faster than even pace.
 //
-//	╭┬────┬─────┬────┬─────┬╮
+//	╭┬────┬─────┬───▼┬─────┬╮
 //	┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
-//	 0         50   ▴    100
+//	 0         50        100
 //
 // The package is pure: it takes a percentage and a width and returns
 // strings. Colour comes from lipgloss, so a caller that sets the renderer's
@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -41,13 +42,13 @@ type Block struct {
 const NoPace = -1
 
 // The palette. Fill colour is per band (see Band); everything else is fixed.
-// The pace marker takes the countdown's cyan: it is a time-derived position,
+// The bold bright-cyan pace marker is a time-derived position,
 // never a health signal, so it must not borrow a band colour.
 var (
 	frameStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // bright black
 	needleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")) // bright white
 	spentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
-	paceStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
+	paceStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // bright cyan
 )
 
 // frame is the style of the bezel, the caps and the scale. A rate-limited
@@ -70,23 +71,12 @@ func frame(rateLimited bool) lipgloss.Style {
 // colour says how worried to be — and the layout colours the percentage
 // with the same call so the two never disagree.
 func Band(pct float64, rateLimited bool) lipgloss.Color {
-	switch {
-	case rateLimited:
-		return lipgloss.Color("1") // red
-	case pct >= 75:
-		return lipgloss.Color("10") // bright green
-	case pct >= 50:
-		return lipgloss.Color("3") // yellow
-	case pct >= 25:
-		return lipgloss.Color("208") // orange
-	default:
-		return lipgloss.Color("1") // red
-	}
+	return display.Band(pct, rateLimited)
 }
 
 // Render draws a gauge width cells wide (the ┴ caps included) for a window
 // with pct remaining. pct is clamped to [0, 100]. pace is the fraction of
-// the window still ahead, clamped to [0, 1], and puts the pace marker under
+// the window still ahead, clamped to [0, 1], and puts the pace marker above
 // that point of the track; NoPace leaves the marker out. It returns an
 // error, and the zero Block, for a width under MinWidth.
 func Render(pct float64, width int, rateLimited bool, pace float64) (Block, error) {
@@ -120,25 +110,24 @@ func Render(pct float64, width int, rateLimited bool, pace float64) (Block, erro
 	track.WriteString(capCell)
 
 	return Block{
-		Bezel: frame.Render("╭" + bezelBody(n) + "╮"),
+		Bezel: bezelRow(n, pace, frame),
 		Track: track.String(),
-		Scale: scaleRow(n, pace, frame),
+		Scale: frame.Render(scale(n)),
 	}, nil
 }
 
-// scaleRow is the styled scale, with the pace marker over the label under
-// the cell it belongs to. The marker wins a collision with a label digit:
-// the labels are fixed and inferable, the marker is the information.
-func scaleRow(n int, pace float64, frame lipgloss.Style) string {
+// bezelRow replaces one bezel cell with the marker, leaving the caps and
+// the scale labels intact. The marker keeps its own style on a red frame.
+func bezelRow(n int, pace float64, frame lipgloss.Style) string {
+	cells := []rune("╭" + bezelBody(n) + "╮")
 	if pace < 0 {
-		return frame.Render(scale(n))
+		return frame.Render(string(cells))
 	}
 	if pace > 1 {
 		pace = 1
 	}
-	cells := []rune(scale(n))
 	at := 1 + needleIndex(pace*100, n)
-	return frame.Render(string(cells[:at])) + paceStyle.Render("▴") + frame.Render(string(cells[at+1:]))
+	return frame.Render(string(cells[:at])) + paceStyle.Render("▼") + frame.Render(string(cells[at+1:]))
 }
 
 // Plain returns b with every escape sequence removed, for callers that want
