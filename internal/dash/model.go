@@ -27,8 +27,12 @@ import (
 )
 
 // footerStyle dims the key hints: they are the one thing on the page that
-// is never about the numbers.
-var footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+// is never about the numbers. The spinner takes the countdown's cyan: it is
+// time passing, not a key.
+var (
+	footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	spinStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+)
 
 // scheduleTick is the cancellable one-shot timer seam. Tests replace it so
 // the refresh state machine can be driven without waiting on wall-clock time.
@@ -57,14 +61,22 @@ var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Ti
 }
 
 // The footer's fixed half. While a fetch is in flight `r` does nothing, so
-// the hint says what is happening instead of offering the key again — and
-// before the first result there is nothing to scroll either, so quitting is
-// the only key worth naming.
+// the hint says what is happening instead of offering the key again, with
+// a spinner where the key would be — and before the first result there is
+// nothing to scroll either, so quitting is the only key worth naming.
 const (
 	keyHints      = "↑↓ scroll · r refresh · q quit"
-	busyKeyHints  = "↑↓ scroll · refreshing… · q quit"
-	firstKeyHints = "fetching… · q quit"
+	busyKeyHints  = " refreshing · q quit" // after the spinner
+	firstKeyHints = " fetching · q quit"   // after the spinner
+	scrollHint    = "↑↓ scroll · "
 	fetchingLabel = "fetching…"
+
+	// spinFrames is the braille spinner, one frame per spinInterval while a
+	// fetch is in flight. The tick runs only then: a tick that lands after
+	// the result is dropped, so an idle dashboard has no timer but the
+	// refresh one.
+	spinFrames   = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+	spinInterval = 80 * time.Millisecond
 
 	// DefaultRefreshInterval keeps zero-value Options useful to direct callers.
 	DefaultRefreshInterval = 60 * time.Second
@@ -119,11 +131,16 @@ type Model struct {
 	width  int
 	height int
 
-	res     usage.Result
-	haveRes bool
-	loading bool
-	offset  int
+	res       usage.Result
+	haveRes   bool
+	updatedAt time.Time // when res arrived, by the model's clock
+	loading   bool
+	spin      int // the spinner frame, meaningful only while loading
+	offset    int
 }
+
+// spinMsg is one spinner tick.
+type spinMsg struct{}
 
 // resultMsg carries a finished fetch back into the update loop.
 type resultMsg struct {
@@ -170,7 +187,18 @@ func New(o Options) Model {
 
 // Init starts the first fetch.
 func (m Model) Init() tea.Cmd {
-	return m.fetch()
+	return m.startFetch()
+}
+
+// startFetch is the fetch together with the spinner that turns while it
+// runs. Callers have already set loading.
+func (m Model) startFetch() tea.Cmd {
+	return tea.Batch(m.fetch(), spinTick())
+}
+
+// spinTick asks for the next spinner frame after spinInterval.
+func spinTick() tea.Cmd {
+	return tea.Tick(spinInterval, func(time.Time) tea.Msg { return spinMsg{} })
 }
 
 // fetch runs every provider and delivers the result as a resultMsg. The
@@ -216,6 +244,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resultMsg:
 		m.res, m.haveRes, m.loading = msg.res, true, false
+		m.updatedAt = m.now()
+		m.spin = 0
 		m.offset = m.clamp(m.offset)
 		cmd := m.scheduleRefresh()
 		return m, cmd
@@ -226,7 +256,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cancelRefreshTimer()
 		m.loading = true
-		return m, m.fetch()
+		return m, m.startFetch()
+
+	case spinMsg:
+		// The spinner outlives nothing: a tick after the result is the
+		// timer winding down, and it is not re-armed.
+		if !m.loading {
+			return m, nil
+		}
+		m.spin = (m.spin + 1) % len([]rune(spinFrames))
+		return m, spinTick()
 
 	case tea.KeyMsg:
 		return m.key(msg)
@@ -268,7 +307,7 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelRefreshTimer()
 		m.refreshGeneration++
 		m.loading = true
-		return m, m.fetch()
+		return m, m.startFetch()
 	}
 	return m, nil
 }
@@ -339,33 +378,86 @@ func (m Model) clamp(off int) int {
 	return max(0, min(off, len(body)-fits))
 }
 
-// footer is the key hints, preceded by what is out of sight.
+// footer is the key hints, preceded by what is out of sight and followed,
+// at the right edge, by when the numbers on screen were fetched.
 //
-// On a terminal too narrow for both, the counts go and the keys stay: how
-// to leave is the one thing the footer must never truncate, and the rows
-// out of sight announce themselves the moment the page is scrolled.
+// On a terminal too narrow for all of it, the update time goes first, then
+// the counts, and the keys stay: how to leave is the one thing the footer
+// must never truncate, and the rows out of sight announce themselves the
+// moment the page is scrolled.
 func (m Model) footer(total, fits int) string {
-	hints := keyHints
-	switch {
-	case m.loading && !m.haveRes:
-		hints = firstKeyHints
-	case m.loading:
-		hints = busyKeyHints
-	}
+	hints := m.hints()
 
-	var parts []string
+	var counts []string
 	if m.offset > 0 {
-		parts = append(parts, fmt.Sprintf("↑ %d more", m.offset))
+		counts = append(counts, fmt.Sprintf("↑ %d more", m.offset))
 	}
 	if below := total - fits - m.offset; below > 0 {
-		parts = append(parts, fmt.Sprintf("↓ %d more", below))
+		counts = append(counts, fmt.Sprintf("↓ %d more", below))
+	}
+	left := hints
+	if len(counts) > 0 {
+		left = append([]seg{{strings.Join(counts, " · ") + " · ", footerStyle}}, hints...)
 	}
 
-	line := strings.Join(append(parts, hints), " · ")
-	if runewidth.StringWidth(line) > m.width {
-		line = hints
+	if m.haveRes {
+		stamp := seg{"updated " + m.updatedAt.Format("15:04:05"), footerStyle}
+		if gap := m.width - cells(left...) - cells(stamp); gap >= 2 {
+			return render(left...) + strings.Repeat(" ", gap) + render(stamp)
+		}
 	}
-	return footerStyle.Render(fit(line, m.width))
+	if cells(left...) > m.width {
+		left = hints
+	}
+	if cells(left...) > m.width {
+		return footerStyle.Render(fit(plain(left...), m.width))
+	}
+	return render(left...) + strings.Repeat(" ", m.width-cells(left...))
+}
+
+// hints is the footer's key half: the keys, or what is happening instead
+// of the key that would do nothing.
+func (m Model) hints() []seg {
+	frame := seg{string([]rune(spinFrames)[m.spin]), spinStyle}
+	switch {
+	case m.loading && !m.haveRes:
+		return []seg{frame, {firstKeyHints, footerStyle}}
+	case m.loading:
+		return []seg{{scrollHint, footerStyle}, frame, {busyKeyHints, footerStyle}}
+	}
+	return []seg{{keyHints, footerStyle}}
+}
+
+// seg is a run of footer text in one style; the footer is measured on the
+// text and rendered segment by segment, so a styled run inside it does
+// not reset the style of what follows.
+type seg struct {
+	text  string
+	style lipgloss.Style
+}
+
+func cells(segs ...seg) int {
+	n := 0
+	for _, s := range segs {
+		n += runewidth.StringWidth(s.text)
+	}
+	return n
+}
+
+func plain(segs ...seg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString(s.text)
+	}
+	return b.String()
+}
+
+func render(segs ...seg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString(s.style.Render(s.text))
+	}
+	return b.String()
 }
 
 // fit trims s to width cells and pads it out to exactly that many.

@@ -27,7 +27,9 @@ the window's period, a `▴` under the scale marks where the needle would sit if
 the window were being spent evenly: a needle left of the marker is being spent
 faster than even pace, one to its right slower. A rate-limited window is drawn
 as a wall: its whole frame and its countdown turn red alongside the `[RL]`
-badge, since the wait is then the only number that matters.
+badge, since the wait is then the only number that matters. The footer ends
+with the time the numbers on screen were fetched, and shows a spinner while
+the next fetch is in flight.
 
 | Key | Does |
 | --- | --- |
