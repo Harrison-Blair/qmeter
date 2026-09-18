@@ -400,7 +400,7 @@ func TestLongWindowNameIsMiddleTruncated(t *testing.T) {
 	const long = "GPT-5.3-Codex-Spark secondary with an unreasonably long name"
 	res.Windows[5].Name = long
 
-	// At the 36-cell floor the name has 34 cells to live in.
+	// At the 36-cell floor the name has 28 cells after reserving the badge.
 	got := layout.Render(res, 36, opts(false))
 	line := ""
 	for _, l := range got {
@@ -412,18 +412,18 @@ func TestLongWindowNameIsMiddleTruncated(t *testing.T) {
 	if line == "" {
 		t.Fatalf("no name line was truncated:\n%s", strings.Join(got, "\n"))
 	}
-	name := strings.TrimRight(strings.TrimPrefix(line, "▸ "), " ")
-	if runewidth.StringWidth(name) != 34 {
-		t.Errorf("truncated name is %d cells, want 34: %q", runewidth.StringWidth(name), name)
+	name := strings.TrimSuffix(strings.TrimRight(strings.TrimPrefix(line, "▸ "), " "), " [n/a]")
+	if runewidth.StringWidth(name) != 28 {
+		t.Errorf("truncated name is %d cells, want 28: %q", runewidth.StringWidth(name), name)
 	}
 	if !strings.HasPrefix(name, long[:8]) || !strings.HasSuffix(name, long[len(long)-8:]) {
 		t.Errorf("middle truncation kept the wrong ends: %q", name)
 	}
 
-	// The sample's own 29-character name still fits a 36-cell column whole.
-	whole := layout.Render(sample(), 36, opts(false))
-	if !hasLineWith(whole, "▸ GPT-5.3-Codex-Spark secondary") {
-		t.Error("a 29-character name was truncated in a 36-cell column")
+	// The sample's name and full badge fit without truncation at width 40.
+	whole := layout.Render(sample(), 40, opts(false))
+	if !hasLineWith(whole, "▸ GPT-5.3-Codex-Spark secondary [n/a]") {
+		t.Error("name was truncated despite room for its badge")
 	}
 }
 
@@ -737,4 +737,150 @@ func findLine(t *testing.T, lines []string, sub string) string {
 		t.Fatalf("no line contains %q:\n%s", sub, strings.Join(lines, "\n"))
 	}
 	return lines[i]
+}
+
+// TestPaceMarkerFollowsTheWindowPeriod: a window that knows its period gets
+// a ▼ in its bezel row at the fraction of the period still ahead; one that
+// does not is drawn exactly as before. At the 36-cell floor the track is
+// 20 cells, so 3h38m of a 5h window (0.727) is track cell 14, page
+// column 7 + 1 + 14 = 22.
+func TestPaceMarkerFollowsTheWindowPeriod(t *testing.T) {
+	window := func(period time.Duration) usage.Result {
+		return usage.Result{Windows: []provider.Window{{
+			Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68,
+			ResetsAt: now.Add(3*time.Hour + 38*time.Minute), Period: period,
+		}}}
+	}
+	paced := layout.Render(window(5*time.Hour), layout.MinColumn, opts(false))
+	scale := findLine(t, paced, "▼")
+	if !strings.Contains(scale, "╭") || !strings.Contains(scale, "╮") {
+		t.Errorf("the marker is not on the bezel row: %q", scale)
+	}
+	if cells := []rune(scale); cells[22] != '▼' {
+		t.Errorf("marker at column %d, want 22: %q", strings.IndexRune(scale, '▼'), scale)
+	}
+	if n := countLinesWith(paced, "▼"); n != 1 {
+		t.Errorf("%d lines carry a marker, want 1", n)
+	}
+
+	unpaced := layout.Render(window(0), layout.MinColumn, opts(false))
+	if hasLineWith(unpaced, "▼") {
+		t.Errorf("a window without a period has a pace marker:\n%s", strings.Join(unpaced, "\n"))
+	}
+}
+
+// TestPaceMarkerIsClampedToTheTrack: a reset already due sits at 0, and a
+// reset further away than the period (a provider's clock skew) at 100.
+func TestPaceMarkerIsClampedToTheTrack(t *testing.T) {
+	at := func(resets time.Time) []string {
+		return layout.Render(usage.Result{Windows: []provider.Window{{
+			Provider: "claude", Name: "5h", RemainingPercent: 68, ResetsAt: resets, Period: 5 * time.Hour,
+		}}}, layout.MinColumn, opts(false))
+	}
+	if scale := findLine(t, at(now.Add(-time.Minute)), "▼"); []rune(scale)[8] != '▼' {
+		t.Errorf("a due window's marker is not above the first cell: %q", scale)
+	}
+	if scale := findLine(t, at(now.Add(9*time.Hour)), "▼"); []rune(scale)[27] != '▼' {
+		t.Errorf("a window resetting beyond its period is not above the last cell: %q", scale)
+	}
+}
+
+// TestRateLimitedCountdownIsBoldRed: once a window is rate limited the
+// countdown is the only number that matters, so it leaves the time colour
+// for the health one. Every other countdown keeps its cyan.
+func TestRateLimitedCountdownIsBoldRed(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	page := strings.Join(layout.Render(sample(), 40, opts(false)), "\n")
+	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	if want := wall.Render("6d23h"); !strings.Contains(page, want) {
+		t.Errorf("the rate-limited countdown is not bold red: page lacks %q", want)
+	}
+	if want := cyan.Render("3h38m"); !strings.Contains(page, want) {
+		t.Errorf("an ordinary countdown lost its cyan: page lacks %q", want)
+	}
+	if stray := cyan.Render("6d23h"); strings.Contains(page, stray) {
+		t.Errorf("the rate-limited countdown is still cyan: page has %q", stray)
+	}
+}
+
+func TestWindowPaceBadges(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		remaining float64
+		reset     time.Time
+		period    time.Duration
+		want      string
+	}{
+		{"ahead", 30, now.Add(50 * time.Minute), 100 * time.Minute, "ahead"},
+		{"behind", 70, now.Add(50 * time.Minute), 100 * time.Minute, "behind"},
+		{"lower boundary", 45, now.Add(50 * time.Minute), 100 * time.Minute, "on pace"},
+		{"upper boundary", 55, now.Add(50 * time.Minute), 100 * time.Minute, "on pace"},
+		{"below boundary", 44.999, now.Add(50 * time.Minute), 100 * time.Minute, "ahead"},
+		{"above boundary", 55.001, now.Add(50 * time.Minute), 100 * time.Minute, "behind"},
+		{"no period", 50, now.Add(time.Hour), 0, "n/a"},
+		{"no reset", 50, time.Time{}, time.Hour, "n/a"},
+		{"expired", 50, now, time.Hour, "n/a"},
+		{"future start", 50, now.Add(2 * time.Hour), time.Hour, "n/a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := usage.Result{Windows: []provider.Window{{Provider: "codex", Name: "weekly", RemainingPercent: tc.remaining, ResetsAt: tc.reset, Period: tc.period}}}
+			page := layout.Render(r, 40, opts(false))
+			if !hasLineWith(page, "▸ weekly ["+tc.want+"]") {
+				t.Fatalf("badge missing: %s", strings.Join(page, "\n"))
+			}
+			if strings.Contains(strings.Join(page, ""), "\x1b") {
+				t.Fatal("plain badge contains ANSI")
+			}
+		})
+	}
+}
+
+func TestPaceBadgeColorsAndRateLimit(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+	for _, tc := range []struct {
+		remaining    float64
+		period       time.Duration
+		label, color string
+	}{
+		{70, 100 * time.Minute, "behind", "208"}, {50, 100 * time.Minute, "on pace", "10"}, {30, 100 * time.Minute, "ahead", "11"}, {30, 0, "n/a", "8"},
+	} {
+		r := usage.Result{Windows: []provider.Window{{Provider: "codex", Name: "weekly", RemainingPercent: tc.remaining, Period: tc.period, ResetsAt: now.Add(50 * time.Minute), RateLimited: true}}}
+		page := strings.Join(layout.Render(r, 40, opts(false)), "\n")
+		want := lipgloss.NewStyle().Foreground(lipgloss.Color(tc.color)).Bold(true).Render("[" + tc.label + "]")
+		if !strings.Contains(page, want) {
+			t.Errorf("missing styled badge %q in %q", want, page)
+		}
+		if !strings.Contains(page, "[RL]") {
+			t.Error("lost rate limit badge")
+		}
+		if tc.period > 0 && !strings.Contains(page, lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true).Render("▼")) {
+			t.Error("lost cyan marker")
+		}
+	}
+}
+
+func TestLongWindowNamesPreserveCompletePaceBadge(t *testing.T) {
+	for _, width := range []int{36, 40, 80, 100, 120} {
+		for _, name := range []string{strings.Repeat("long-name", 20), strings.Repeat("日本語", 30)} {
+			r := usage.Result{Windows: []provider.Window{
+				{Provider: "claude", Name: name, RemainingPercent: 50, Period: time.Hour, ResetsAt: now.Add(30 * time.Minute)},
+				{Provider: "codex", Name: name, RemainingPercent: 50, Period: time.Hour, ResetsAt: now.Add(30 * time.Minute)},
+			}}
+			lines := layout.Render(r, width, opts(false))
+			count := 0
+			for _, line := range lines {
+				if runewidth.StringWidth(line) != width {
+					t.Errorf("width %d got %d: %q", width, runewidth.StringWidth(line), line)
+				}
+				count += strings.Count(line, " [on pace]")
+			}
+			if count != 2 {
+				t.Errorf("width %d complete badges %d: %s", width, count, strings.Join(lines, "\n"))
+			}
+		}
+	}
 }

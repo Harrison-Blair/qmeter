@@ -1,8 +1,11 @@
 // Package gauge draws the dashboard's fuel gauge: three rows of the same
 // width — a bezel with five tick marks, a track whose needle sits at the
-// remaining percentage, and a 0/50/100 scale under it.
+// remaining percentage, and a 0/50/100 scale under it. A window that knows
+// its period also gets a pace marker in the bezel row: ▼ above the track
+// cell the needle would occupy if the window were being spent evenly, so
+// a needle left of the marker is being spent faster than even pace.
 //
-//	╭┬────┬─────┬────┬─────┬╮
+//	╭┬────┬─────┬───▼┬─────┬╮
 //	┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
 //	 0         50        100
 //
@@ -16,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -33,12 +37,30 @@ type Block struct {
 	Scale string
 }
 
+// NoPace, or any negative pace, draws a gauge without a pace marker: the
+// window's period is not known, so there is no even pace to mark.
+const NoPace = -1
+
 // The palette. Fill colour is per band (see Band); everything else is fixed.
+// The bold bright-cyan pace marker is a time-derived position,
+// never a health signal, so it must not borrow a band colour.
 var (
 	frameStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // bright black
 	needleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")) // bright white
 	spentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
+	paceStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // bright cyan
 )
+
+// frame is the style of the bezel, the caps and the scale. A rate-limited
+// window is a wall with a timer on it, so its frame joins the fill in
+// faint red instead of the neutral bright black: red already means
+// "worried", and the frame borrows it rather than adding a colour.
+func frame(rateLimited bool) lipgloss.Style {
+	if rateLimited {
+		return spentStyle
+	}
+	return frameStyle
+}
 
 // Band returns the colour for a window with pct remaining: bright green
 // from 75 up, yellow from 50, orange from 25, red below that. A rate-limited
@@ -49,24 +71,15 @@ var (
 // colour says how worried to be — and the layout colours the percentage
 // with the same call so the two never disagree.
 func Band(pct float64, rateLimited bool) lipgloss.Color {
-	switch {
-	case rateLimited:
-		return lipgloss.Color("1") // red
-	case pct >= 75:
-		return lipgloss.Color("10") // bright green
-	case pct >= 50:
-		return lipgloss.Color("3") // yellow
-	case pct >= 25:
-		return lipgloss.Color("208") // orange
-	default:
-		return lipgloss.Color("1") // red
-	}
+	return display.Band(pct, rateLimited)
 }
 
 // Render draws a gauge width cells wide (the ┴ caps included) for a window
-// with pct remaining. pct is clamped to [0, 100]. It returns an error, and
-// the zero Block, for a width under MinWidth.
-func Render(pct float64, width int, rateLimited bool) (Block, error) {
+// with pct remaining. pct is clamped to [0, 100]. pace is the fraction of
+// the window still ahead, clamped to [0, 1], and puts the pace marker above
+// that point of the track; NoPace leaves the marker out. It returns an
+// error, and the zero Block, for a width under MinWidth.
+func Render(pct float64, width int, rateLimited bool, pace float64) (Block, error) {
 	if width < MinWidth {
 		return Block{}, fmt.Errorf("gauge: width %d is under the %d-cell minimum (a %d-cell track plus two caps)",
 			width, MinWidth, MinWidth-2)
@@ -82,7 +95,8 @@ func Render(pct float64, width int, rateLimited bool) (Block, error) {
 	needle := needleIndex(pct, n)
 
 	fill := lipgloss.NewStyle().Foreground(Band(pct, rateLimited))
-	capCell := frameStyle.Render("┴")
+	frame := frame(rateLimited)
+	capCell := frame.Render("┴")
 
 	var track strings.Builder
 	track.WriteString(capCell)
@@ -96,10 +110,24 @@ func Render(pct float64, width int, rateLimited bool) (Block, error) {
 	track.WriteString(capCell)
 
 	return Block{
-		Bezel: frameStyle.Render("╭" + bezelBody(n) + "╮"),
+		Bezel: bezelRow(n, pace, frame),
 		Track: track.String(),
-		Scale: frameStyle.Render(scale(n)),
+		Scale: frame.Render(scale(n)),
 	}, nil
+}
+
+// bezelRow replaces one bezel cell with the marker, leaving the caps and
+// the scale labels intact. The marker keeps its own style on a red frame.
+func bezelRow(n int, pace float64, frame lipgloss.Style) string {
+	cells := []rune("╭" + bezelBody(n) + "╮")
+	if pace < 0 {
+		return frame.Render(string(cells))
+	}
+	if pace > 1 {
+		pace = 1
+	}
+	at := 1 + needleIndex(pace*100, n)
+	return frame.Render(string(cells[:at])) + paceStyle.Render("▼") + frame.Render(string(cells[at+1:]))
 }
 
 // Plain returns b with every escape sequence removed, for callers that want

@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"text/tabwriter"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// RenderText writes r as the human-readable table described by the layout
-// contract on renderText below, counting the RESETS column down from
-// time.Now().
+// RenderText writes r as a human-readable table with countdowns from time.Now().
+// Color follows the output destination and NO_COLOR; redirected output is plain.
 //
 // It formats only what Run already decided: every message in r.Errors and
 // r.Undetected is final text and is printed verbatim, never re-wrapped.
@@ -20,55 +20,45 @@ func RenderText(w io.Writer, r Result) error {
 	return renderText(w, r, time.Now())
 }
 
-// renderText is RenderText with an injectable "now" so the golden test is
-// deterministic.
-//
-// Layout contract — the fixed table layout this package renders, asserted by
-// the golden test in render_test.go: the writer
-// is tabwriter.NewWriter(out, 0, 8, 2, ' ', 0); data rows are written as
-// "provider\twindow\tplan\tremaining\tresets\n" so the RESETS cell — the last
-// cell on the line, and therefore never tab-terminated — is neither padded
-// nor counted towards any column width; failure and not-detected rows are
-// two-cell "provider\tmessage\n" lines, which keeps their long message out
-// of the WINDOW column's width while still padding their PROVIDER cell to
-// the widest provider name printed.
+// renderText uses one time for every countdown and a writer-bound renderer.
 func renderText(w io.Writer, r Result, now time.Time) error {
+	return renderTextStyled(w, r, now, display.Renderer(w))
+}
+
+func renderTextStyled(w io.Writer, r Result, now time.Time, renderer *lipgloss.Renderer) error {
 	if len(r.Windows) == 0 && len(r.Errors) == 0 && len(r.Undetected) == 0 {
 		_, err := fmt.Fprintln(w, "no providers detected")
 		return err
 	}
-
-	tw := tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
-	if _, err := fmt.Fprint(tw, "PROVIDER\tWINDOW\tPLAN\tREMAINING\tRESETS\n"); err != nil {
-		return err
-	}
+	rows := [][]display.Cell{display.Header(renderer, "PROVIDER", "WINDOW", "PLAN", "REMAINING", "RESETS")}
 	for _, win := range r.Windows {
 		plan := win.Plan
 		if plan == "" {
 			plan = "-"
 		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%.1f%%\t%s\n",
-			win.Provider, win.Name, plan, win.RemainingPercent, resetsCell(win, now)); err != nil {
-			return err
-		}
+		rows = append(rows, []display.Cell{display.ProviderCell(renderer, win.Provider), {Text: win.Name}, {Text: plan}, display.RemainingCell(renderer, win.RemainingPercent, win.RateLimited), display.ResetCell(renderer, ResetsCell(win, now), win.RateLimited)})
 	}
-	for _, e := range r.Errors {
-		if _, err := fmt.Fprintf(tw, "%s\terror: %s\n", e.Provider, e.Message); err != nil {
-			return err
-		}
-	}
-	for _, u := range r.Undetected {
-		if _, err := fmt.Fprintf(tw, "%s\tnot detected: %s\n", u.Provider, u.Message); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
+	rows = append(rows, MessageRows(renderer, r)...)
+	return display.Table(w, rows)
 }
 
-// resetsCell renders a window's whole RESETS cell: the countdown, plus the
+// MessageRows shares the two-cell provider-error and not-detected rows between
+// tables without allowing the final message to widen the WINDOW column.
+func MessageRows(renderer *lipgloss.Renderer, r Result) [][]display.Cell {
+	var rows [][]display.Cell
+	for _, e := range r.Errors {
+		rows = append(rows, []display.Cell{display.ProviderCell(renderer, e.Provider), {Text: "error: " + e.Message, Style: renderer.NewStyle().Foreground(display.Error)}})
+	}
+	for _, u := range r.Undetected {
+		rows = append(rows, []display.Cell{display.ProviderCell(renderer, u.Provider), {Text: "not detected: " + u.Message, Style: renderer.NewStyle().Foreground(display.Neutral)}})
+	}
+	return rows
+}
+
+// ResetsCell renders a window's whole RESETS cell: the countdown, plus the
 // two-space-separated "(rate limited)" suffix when the window is rate
 // limited. It is one cell so the suffix never becomes a column of its own.
-func resetsCell(w provider.Window, now time.Time) string {
+func ResetsCell(w provider.Window, now time.Time) string {
 	cell := "-"
 	if !w.ResetsAt.IsZero() {
 		cell = "in " + formatResets(w.ResetsAt.Sub(now))
@@ -83,7 +73,7 @@ func resetsCell(w provider.Window, now time.Time) string {
 // "<h>h<m>m" or "<m>m", dropping a trailing zero unit ("12d", not "12d0h").
 // A duration that has already elapsed, or is shorter than a minute, is
 // "0m" — the window is due, which is not the same as having no reset time
-// at all (that renders as "-", see resetsCell).
+// at all (that renders as "-", see ResetsCell).
 func formatResets(d time.Duration) string {
 	if d < 0 {
 		d = 0

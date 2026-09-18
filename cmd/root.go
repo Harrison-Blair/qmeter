@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Harrison-Blair/qmeter/cmd/dash"
+	"github.com/Harrison-Blair/qmeter/cmd/pace"
 	"github.com/Harrison-Blair/qmeter/cmd/update"
 	"github.com/Harrison-Blair/qmeter/cmd/usage"
 	"github.com/Harrison-Blair/qmeter/cmd/version"
@@ -44,6 +45,7 @@ func NewRootCmd() *cobra.Command {
 	dash.Attach(root)
 
 	root.AddCommand(usage.New())
+	root.AddCommand(pace.New())
 	root.AddCommand(version.New())
 	root.AddCommand(update.New())
 

@@ -11,6 +11,7 @@
 # Documentation
 !*.md
 !LICENSE
+!docs/screenshots/*.png
 
 # Repo config
 !.gitignore

@@ -22,7 +22,16 @@ A CLI tool to see your AI subscription usage limits
 
 `qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and
 under it a fuel gauge for every usage window of every provider it detects — what
-is left of the window, and how long until it resets.
+is left of the window, and how long until it resets. When the provider reports
+the window's period, a bold bright-cyan `▼` on the top border points down at where
+the white `▲` needle would sit if the window were being spent evenly: a needle left of the marker is being spent
+faster than even pace, one to its right slower. Each limit name includes a pace
+badge: orange `[behind]`, green `[on pace]`, yellow `[ahead]`, or gray `[n/a]`.
+These use the same remaining-allowance calculation as `qmeter pace`. A rate-limited window is drawn
+as a wall: its frame and countdown turn red alongside the `[RL]` badge;
+the pace marker stays cyan and the actual needle stays white. The footer ends
+with the time the numbers on screen were fetched, and shows a spinner while
+the next fetch is in flight.
 
 | Key | Does |
 | --- | --- |
@@ -42,6 +51,13 @@ Two flags:
 The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
 both still honour `--filter`. Colour follows [`NO_COLOR`](https://no-color.org).
+
+The `usage` and `pace` text tables use provider colors, remaining-allowance bands,
+cyan reset countdowns (red when rate limited), and colored status messages. Pace
+labels use the badge colors without brackets. Styling is enabled only when the
+output destination is a terminal that supports color. Pipes, files, JSON, and a
+nonempty `NO_COLOR` environment variable produce plain output. CLI tables use
+the default provider colors; dashboard color configuration stays dashboard-only.
 
 ### Configuration
 
@@ -95,6 +111,37 @@ The configuration is used only by the interactive dashboard, not by JSON or
 piped output. If an existing file cannot be read or contains malformed,
 unknown, or invalid settings, qmeter prints one warning naming the file, ignores
 the whole file, and continues with all defaults.
+
+## Pace
+
+`qmeter pace` lists each detected usage limit and compares remaining allowance with
+how much of its period remains. The table shows `PROVIDER`, `WINDOW`, `PACE`,
+`REMAINING`, `EXPECTED`, and `RESETS`.
+
+- **ahead**: remaining allowance is more than 5 percentage points below expected; allowance is being used faster.
+- **on pace**: remaining allowance is within 5 percentage points of expected, including both boundaries.
+- **behind**: remaining allowance is more than 5 percentage points above expected; allowance is being used slower.
+- **n/a**: the provider does not report a reset and positive period, or the
+  current time is outside that period. Expected remaining allowance is shown as `-`.
+
+The baseline spreads usage evenly across continuous elapsed time, including
+nights and weekends. A period begins at its reset time minus its reported
+length. Expected remaining allowance is the percentage of that period left until
+reset. Labels use unrounded values; the table displays one decimal place.
+Exhaustion and rate limiting do not override the pace calculation. `n/a` means
+there is insufficient timing information, not necessarily a nonrecurring plan.
+
+```sh
+qmeter pace
+qmeter pace --filter claude,codex
+qmeter pace --filter claude --filter codex --json
+```
+
+`--filter` follows the dashboard's comma-separated or repeated syntax; undetected
+providers are omitted. `--json` retains the usage envelope (`windows`, `errors`,
+`undetected`) and existing window fields (including `remaining_percent`), adding `pace` and
+`expected_remaining_percent` to each window. The expected percentage is `null` for
+`n/a`; all three envelope arrays are present even when empty.
 
 ## Install
 

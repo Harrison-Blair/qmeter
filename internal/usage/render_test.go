@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/provider"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 // renderNow is the fixed "now" every renderer test injects, so the RESETS
@@ -180,7 +183,7 @@ func TestFormatResets_LargestTwoNonZeroUnits(t *testing.T) {
 }
 
 func TestRenderText_ZeroResetsAtRendersDashNotCountdown(t *testing.T) {
-	if got := resetsCell(provider.Window{}, renderNow); got != "-" {
+	if got := ResetsCell(provider.Window{}, renderNow); got != "-" {
 		t.Fatalf("got %q, want %q", got, "-")
 	}
 }
@@ -244,5 +247,34 @@ func TestRenderJSON_NilSlicesRenderAsEmptyArrays(t *testing.T) {
 	want := `{"windows":[],"errors":[],"undetected":[]}` + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+func TestColoredTableKeepsPlainAlignment(t *testing.T) {
+	r := Result{Windows: []provider.Window{{Provider: "claude", Name: "日本", Plan: "max", RemainingPercent: 80, ResetsAt: renderNow.Add(time.Hour)}, {Provider: "codex", Name: "weekly", RemainingPercent: 30, RateLimited: true}}, Errors: []ProviderError{{Provider: "cursor", Message: "failed"}}, Undetected: []ProviderError{{Provider: "opencode-go", Message: "missing"}}}
+	var plainOut, colored bytes.Buffer
+	if err := renderText(&plainOut, r, renderNow); err != nil {
+		t.Fatal(err)
+	}
+	renderer := lipgloss.NewRenderer(&colored)
+	renderer.SetColorProfile(termenv.ANSI256)
+	renderer.SetHasDarkBackground(true)
+	if err := renderTextStyled(&colored, r, renderNow, renderer); err != nil {
+		t.Fatal(err)
+	}
+	if got := ansi.Strip(colored.String()); got != plainOut.String() {
+		t.Fatalf("ANSI changed alignment: %q vs %q", got, plainOut.String())
+	}
+	for _, want := range []string{renderer.NewStyle().Bold(true).Render("PROVIDER"), renderer.NewStyle().Foreground(lipgloss.Color("10")).Render("80.0%"), renderer.NewStyle().Foreground(lipgloss.Color("1")).Render("30.0%"), renderer.NewStyle().Foreground(lipgloss.Color("6")).Render("in 1h"), renderer.NewStyle().Foreground(lipgloss.Color("1")).Render("-  (rate limited)"), renderer.NewStyle().Foreground(lipgloss.Color("9")).Render("error: failed"), renderer.NewStyle().Foreground(lipgloss.Color("8")).Render("not detected: missing")} {
+		if !strings.Contains(colored.String(), want) {
+			t.Errorf("missing %q in %q", want, colored.String())
+		}
+	}
+	var wire bytes.Buffer
+	if err := RenderJSON(&wire, r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(wire.String(), "\\u001b") || strings.Contains(wire.String(), "\x1b") {
+		t.Fatal("styled JSON")
 	}
 }
