@@ -25,7 +25,9 @@ under it a fuel gauge for every usage window of every provider it detects — wh
 is left of the window, and how long until it resets. When the provider reports
 the window's period, a `▴` under the scale marks where the needle would sit if
 the window were being spent evenly: a needle left of the marker is being spent
-faster than even pace, one to its right slower.
+faster than even pace, one to its right slower. A rate-limited window is drawn
+as a wall: its whole frame and its countdown turn red alongside the `[RL]`
+badge, since the wait is then the only number that matters.
 
 | Key | Does |
 | --- | --- |

@@ -323,3 +323,39 @@ func TestPaceMarkerIsCyan(t *testing.T) {
 		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
 	}
 }
+
+// TestRateLimitedFrameIsFaintRed: a rate-limited window is a wall with a
+// timer on it, so the whole frame joins the fill — bezel, caps and scale in
+// faint red instead of bright black — while the needle stays white and the
+// pace marker keeps its cyan. Without colour the badge still carries the
+// state, so the geometry is untouched.
+func TestRateLimitedFrameIsFaintRed(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	b, err := gauge.Render(90, 25, true, 0.5)
+	if err != nil {
+		t.Fatalf("Render returned error: %v", err)
+	}
+	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
+	fill := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	needle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+
+	if want := wall.Render("╭┬────┬─────┬────┬─────┬╮"); b.Bezel != want {
+		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
+	}
+	wantTrack := wall.Render("┴") + fill.Render(strings.Repeat("▰", 20)) +
+		needle.Render("▲") + wall.Render(strings.Repeat("▱", 2)) + wall.Render("┴")
+	if b.Track != wantTrack {
+		t.Errorf("track:\ngot  %q\nwant %q", b.Track, wantTrack)
+	}
+	if want := wall.Render(" 0         5") + cyan.Render("▴") + wall.Render("        100 "); b.Scale != want {
+		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
+	}
+
+	// The same gauge, not rate limited, stripped: the wall is colour only.
+	if got, want := gauge.Plain(b), gauge.Plain(mustRenderPace(t, 90, 25, false, 0.5)); got != want {
+		t.Errorf("the wall changed the geometry:\ngot  %+v\nwant %+v", got, want)
+	}
+}

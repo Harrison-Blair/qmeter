@@ -109,6 +109,7 @@ var (
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	rlStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("1")).Bold(true)
+	rlCdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )
 
 // Render draws the whole page for r at width cells and returns its lines,
@@ -468,9 +469,15 @@ func countdown(w provider.Window, now time.Time) string {
 	return truncTail(formatResets(w.ResetsAt.Sub(now)), cdWidth)
 }
 
+// countdownStyle is cyan, the time colour, except for a rate-limited
+// window: there the countdown is the only number that matters, so it takes
+// the health colour along with the gauge's frame.
 func countdownStyle(w provider.Window) lipgloss.Style {
-	if w.ResetsAt.IsZero() {
+	switch {
+	case w.ResetsAt.IsZero():
 		return dimStyle
+	case w.RateLimited:
+		return rlCdStyle
 	}
 	return cdStyle
 }

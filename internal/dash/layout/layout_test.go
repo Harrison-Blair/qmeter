@@ -784,3 +784,24 @@ func TestPaceMarkerIsClampedToTheTrack(t *testing.T) {
 		t.Errorf("a window resetting beyond its period is not under the last cell: %q", scale)
 	}
 }
+
+// TestRateLimitedCountdownIsBoldRed: once a window is rate limited the
+// countdown is the only number that matters, so it leaves the time colour
+// for the health one. Every other countdown keeps its cyan.
+func TestRateLimitedCountdownIsBoldRed(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	page := strings.Join(layout.Render(sample(), 40, opts(false)), "\n")
+	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	if want := wall.Render("6d23h"); !strings.Contains(page, want) {
+		t.Errorf("the rate-limited countdown is not bold red: page lacks %q", want)
+	}
+	if want := cyan.Render("3h38m"); !strings.Contains(page, want) {
+		t.Errorf("an ordinary countdown lost its cyan: page lacks %q", want)
+	}
+	if stray := cyan.Render("6d23h"); strings.Contains(page, stray) {
+		t.Errorf("the rate-limited countdown is still cyan: page has %q", stray)
+	}
+}
