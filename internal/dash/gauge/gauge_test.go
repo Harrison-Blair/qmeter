@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 
 func mustRender(t *testing.T, pct float64, width int, rl bool) gauge.Block {
 	t.Helper()
-	b, err := gauge.Render(pct, width, rl)
+	b, err := gauge.Render(pct, width, rl, gauge.NoPace)
 	if err != nil {
 		t.Fatalf("Render(%v, %d, %v) returned error: %v", pct, width, rl, err)
 	}
@@ -140,10 +140,10 @@ func TestRenderRefusesAGaugeUnderTheTwentyCellFloor(t *testing.T) {
 	if gauge.MinWidth != 22 {
 		t.Errorf("MinWidth = %d, want 22 (a 20-cell track plus the two caps)", gauge.MinWidth)
 	}
-	if _, err := gauge.Render(50, gauge.MinWidth, false); err != nil {
+	if _, err := gauge.Render(50, gauge.MinWidth, false, gauge.NoPace); err != nil {
 		t.Errorf("Render at MinWidth returned error: %v", err)
 	}
-	b, err := gauge.Render(50, gauge.MinWidth-1, false)
+	b, err := gauge.Render(50, gauge.MinWidth-1, false, gauge.NoPace)
 	if err == nil {
 		t.Fatalf("Render at %d cells returned no error, want one", gauge.MinWidth-1)
 	}
@@ -194,7 +194,7 @@ func TestRenderColoursEveryPartOfTheTrack(t *testing.T) {
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
 	const width = 25 // 23 cells; 90% puts the needle at cell 20
-	b, err := gauge.Render(90, width, false)
+	b, err := gauge.Render(90, width, false, gauge.NoPace)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestRateLimitedFillIsRed(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(90, 25, true)
+	b, err := gauge.Render(90, 25, true, gauge.NoPace)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestPlainStripsTheStyling(t *testing.T) {
 	bare := mustRender(t, 68, 25, false) // Ascii profile: already unstyled
 
 	lipgloss.SetColorProfile(termenv.ANSI256)
-	styled, err := gauge.Render(68, 25, false)
+	styled, err := gauge.Render(68, 25, false, gauge.NoPace)
 	lipgloss.SetColorProfile(termenv.Ascii)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
@@ -245,5 +245,117 @@ func TestPlainStripsTheStyling(t *testing.T) {
 	}
 	if got := gauge.Plain(styled); got != bare {
 		t.Errorf("Plain:\ngot  %+v\nwant %+v", got, bare)
+	}
+}
+
+// mustRenderPace is mustRender with a pace marker.
+func mustRenderPace(t *testing.T, pct float64, width int, rl bool, pace float64) gauge.Block {
+	t.Helper()
+	b, err := gauge.Render(pct, width, rl, pace)
+	if err != nil {
+		t.Fatalf("Render(%v, %d, %v, %v) returned error: %v", pct, width, rl, pace, err)
+	}
+	return b
+}
+
+// TestPaceMarkerSitsUnderTheEvenSpendCell pins the marker against the
+// design: ▴ in the scale row, under the track cell the needle would occupy
+// if the window were being spent evenly, which is the fraction of the
+// window still ahead. The bezel and track are untouched by it.
+func TestPaceMarkerSitsUnderTheEvenSpendCell(t *testing.T) {
+	const width = 25 // 23 track cells
+	tests := []struct {
+		name string
+		pace float64
+		want string
+	}{
+		{"3h38m left of a 5h window", 218.0 / 300, " 0         50    ▴   100 "},
+		{"halfway: the marker wins over the 0 of 50", 0.5, " 0         5▴        100 "},
+		{"the window is due: the marker wins over the 0", 0, " ▴         50        100 "},
+		{"the window has just reset: the marker wins over the last digit", 1, " 0         50        10▴ "},
+		{"over one is clamped", 1.5, " 0         50        10▴ "},
+		{"NoPace draws no marker", gauge.NoPace, " 0         50        100 "},
+		{"any negative pace draws no marker", -0.3, " 0         50        100 "},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustRenderPace(t, 68, width, false, tc.pace)
+			if got.Scale != tc.want {
+				t.Errorf("scale:\ngot  %q\nwant %q", got.Scale, tc.want)
+			}
+			plain := mustRender(t, 68, width, false)
+			if got.Bezel != plain.Bezel || got.Track != plain.Track {
+				t.Errorf("the pace marker changed the bezel or the track:\ngot  %+v\nwant %+v", got, plain)
+			}
+		})
+	}
+}
+
+func TestPaceMarkerKeepsEveryRowExactlyWidthCells(t *testing.T) {
+	for width := gauge.MinWidth; width <= 60; width++ {
+		for _, pace := range []float64{0, 0.33, 0.5, 0.99, 1} {
+			b := mustRenderPace(t, 43.5, width, false, pace)
+			if w := runewidth.StringWidth(b.Scale); w != width {
+				t.Errorf("width %d, pace %v: scale is %d cells: %q", width, pace, w, b.Scale)
+			}
+			if !strings.Contains(b.Scale, "▴") {
+				t.Errorf("width %d, pace %v: no marker in %q", width, pace, b.Scale)
+			}
+		}
+	}
+}
+
+// TestPaceMarkerIsCyan: the marker is a time-derived position, so it takes
+// the countdown's colour, never a band colour, and the rest of the scale
+// row stays in the frame colour on both sides of it.
+func TestPaceMarkerIsCyan(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	b, err := gauge.Render(68, 25, false, 0.5)
+	if err != nil {
+		t.Fatalf("Render returned error: %v", err)
+	}
+	frame := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	want := frame.Render(" 0         5") + cyan.Render("▴") + frame.Render("        100 ")
+	if b.Scale != want {
+		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
+	}
+}
+
+// TestRateLimitedFrameIsFaintRed: a rate-limited window is a wall with a
+// timer on it, so the whole frame joins the fill — bezel, caps and scale in
+// faint red instead of bright black — while the needle stays white and the
+// pace marker keeps its cyan. Without colour the badge still carries the
+// state, so the geometry is untouched.
+func TestRateLimitedFrameIsFaintRed(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	b, err := gauge.Render(90, 25, true, 0.5)
+	if err != nil {
+		t.Fatalf("Render returned error: %v", err)
+	}
+	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
+	fill := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	needle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+
+	if want := wall.Render("╭┬────┬─────┬────┬─────┬╮"); b.Bezel != want {
+		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
+	}
+	wantTrack := wall.Render("┴") + fill.Render(strings.Repeat("▰", 20)) +
+		needle.Render("▲") + wall.Render(strings.Repeat("▱", 2)) + wall.Render("┴")
+	if b.Track != wantTrack {
+		t.Errorf("track:\ngot  %q\nwant %q", b.Track, wantTrack)
+	}
+	if want := wall.Render(" 0         5") + cyan.Render("▴") + wall.Render("        100 "); b.Scale != want {
+		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)
+	}
+
+	// The same gauge, not rate limited, stripped: the wall is colour only.
+	if got, want := gauge.Plain(b), gauge.Plain(mustRenderPace(t, 90, 25, false, 0.5)); got != want {
+		t.Errorf("the wall changed the geometry:\ngot  %+v\nwant %+v", got, want)
 	}
 }

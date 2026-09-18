@@ -109,6 +109,7 @@ var (
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	rlStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("1")).Bold(true)
+	rlCdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )
 
 // Render draws the whole page for r at width cells and returns its lines,
@@ -399,12 +400,12 @@ func sectionHead(p provInfo, plan string, colw int) row {
 //	▸ 5h
 //	       ╭┬────┬─────┬────┬─────┬╮   [RL]
 //	 68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m
-//	        0         50        100
+//	        0         50   ▴    100
 func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth int) []row {
 	gw := gaugeWidth(colw, meterWidth)
 	blockw := gw + pctWidth + 1 + 1 + cdWidth
 	left := (colw - blockw) / 2
-	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited)
+	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now))
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
 		// column, which is exactly a 22-cell gauge. Rather than panic on
@@ -437,6 +438,17 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 	return []row{center(name), center(bezel), center(track), center(scale)}
 }
 
+// pace is the fraction of w's period still ahead of now, clamped to [0, 1],
+// or gauge.NoPace when the provider gave no period or no reset time: there
+// is then no even pace to draw.
+func pace(w provider.Window, now time.Time) float64 {
+	if w.Period <= 0 || w.ResetsAt.IsZero() {
+		return gauge.NoPace
+	}
+	f := float64(w.ResetsAt.Sub(now)) / float64(w.Period)
+	return max(0, min(1, f))
+}
+
 // statusRow is an error or not-detected line inside a section: the glyph
 // carries the colour, the message is quoted from the run verbatim and
 // truncated to the column.
@@ -457,9 +469,15 @@ func countdown(w provider.Window, now time.Time) string {
 	return truncTail(formatResets(w.ResetsAt.Sub(now)), cdWidth)
 }
 
+// countdownStyle is cyan, the time colour, except for a rate-limited
+// window: there the countdown is the only number that matters, so it takes
+// the health colour along with the gauge's frame.
 func countdownStyle(w provider.Window) lipgloss.Style {
-	if w.ResetsAt.IsZero() {
+	switch {
+	case w.ResetsAt.IsZero():
 		return dimStyle
+	case w.RateLimited:
+		return rlCdStyle
 	}
 	return cdStyle
 }

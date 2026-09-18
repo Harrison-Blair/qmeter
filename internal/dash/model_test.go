@@ -436,8 +436,8 @@ func TestUpdate_RRefetches(t *testing.T) {
 		t.Fatal("r returned no command, want a fetch")
 	}
 	lines := viewLines(t, m)
-	if got := lines[len(lines)-1]; !strings.Contains(got, "refreshing…") {
-		t.Errorf("footer while refreshing = %q, want it to say refreshing…", got)
+	if got := lines[len(lines)-1]; !strings.Contains(got, "⠋ refreshing") || strings.Contains(got, "…") {
+		t.Errorf("footer while refreshing = %q, want a spinner before refreshing and no ellipsis", got)
 	}
 	// The old page is still on screen while the new one is fetched.
 	body := pageOf(t, sample(), 80, true)[banner.Height:]
@@ -445,10 +445,7 @@ func TestUpdate_RRefetches(t *testing.T) {
 		t.Errorf("first body line = %q, want the previous result's %q", lines[banner.Height], body[0])
 	}
 
-	msg, ok := cmd().(resultMsg)
-	if !ok {
-		t.Fatalf("the fetch produced %T, want a resultMsg", cmd())
-	}
+	msg := fetchResult(t, cmd)
 	if got := windowIDs(msg.res); got != "claude,codex" {
 		t.Fatalf("the fetch returned windows for %q, want claude,codex", got)
 	}
@@ -527,7 +524,7 @@ func TestValidAutoRefreshNeverOverlapsAndCompletionSchedulesTheNextTimer(t *test
 		t.Fatal("provider fetched before the returned fetch command ran")
 	}
 
-	result := fetch().(resultMsg)
+	result := fetchResult(t, fetch)
 	if fake.Fetches() != 1 {
 		t.Fatalf("provider fetched %d times, want 1", fake.Fetches())
 	}
@@ -564,7 +561,7 @@ func TestManualRefreshInvalidatesTheScheduledTimerAndRestartsAfterCompletion(t *
 		t.Error("stale timer started a fetch while the manual refresh was loading")
 	}
 
-	result := manualFetch().(resultMsg)
+	result := fetchResult(t, manualFetch)
 	m, nextTimer := step(t, m, result)
 	if nextTimer == nil {
 		t.Fatal("manual refresh completion scheduled no fresh timer")
@@ -677,11 +674,11 @@ func TestView_LoadingBeforeTheFirstResult(t *testing.T) {
 		t.Errorf("first body line = %q, want fetching…", got[banner.Height])
 	}
 	footer := got[len(got)-1]
-	if !strings.Contains(footer, "fetching…") || !strings.Contains(footer, "q quit") {
-		t.Errorf("footer during the first fetch = %q, want fetching… and q quit", footer)
+	if !strings.Contains(footer, "⠋ fetching") || !strings.Contains(footer, "q quit") {
+		t.Errorf("footer during the first fetch = %q, want a spinner, fetching and q quit", footer)
 	}
-	if strings.Contains(footer, "scroll") || strings.Contains(footer, "refresh") {
-		t.Errorf("footer during the first fetch = %q, want no keys that do nothing yet", footer)
+	if strings.Contains(footer, "scroll") || strings.Contains(footer, "refresh") || strings.Contains(footer, "updated") {
+		t.Errorf("footer during the first fetch = %q, want no keys that do nothing yet and no update time", footer)
 	}
 }
 
@@ -697,10 +694,7 @@ func TestInit_StartsAFetch(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Init returned no command, want a fetch")
 	}
-	msg, ok := cmd().(resultMsg)
-	if !ok {
-		t.Fatalf("Init's command produced %T, want a resultMsg", cmd())
-	}
+	msg := fetchResult(t, cmd)
 	// Every provider, not a single one picked by name.
 	if got := windowIDs(msg.res); got != "claude,cursor" {
 		t.Fatalf("Init fetched windows for %q, want claude,cursor", got)
@@ -765,5 +759,126 @@ func TestView_BeforeTheFirstResize(t *testing.T) {
 	m := newModel(t, true)
 	if got := m.View(); got != "" {
 		t.Errorf("View before a WindowSizeMsg = %q, want empty", got)
+	}
+}
+
+// fetchResult runs a fetch command and returns the result it produces. A
+// fetch shares its command with the spinner tick, so the result may sit
+// inside a batch; every other command in the batch is run too, so the
+// spinner's real timer costs the test one frame.
+func fetchResult(t *testing.T, cmd tea.Cmd) resultMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("no fetch command")
+	}
+	switch msg := cmd().(type) {
+	case resultMsg:
+		return msg
+	case tea.BatchMsg:
+		var found *resultMsg
+		for _, c := range msg {
+			if c == nil {
+				continue
+			}
+			if r, ok := c().(resultMsg); ok {
+				r := r
+				found = &r
+			}
+		}
+		if found != nil {
+			return *found
+		}
+		t.Fatal("the batch produced no resultMsg")
+	default:
+		t.Fatalf("the fetch produced %T, want a resultMsg", msg)
+	}
+	return resultMsg{}
+}
+
+// footerOf is the last line of the view, right-trimmed.
+func footerOf(t *testing.T, m Model) string {
+	t.Helper()
+	lines := viewLines(t, m)
+	return strings.TrimRight(lines[len(lines)-1], " ")
+}
+
+// TestView_FooterSaysWhenTheNumbersWereLastTrue: once a result is on
+// screen the footer ends with the time it arrived, right-aligned, and
+// keeps it through the next refresh so the old page is dated while the
+// new one is fetched.
+func TestView_FooterSaysWhenTheNumbersWereLastTrue(t *testing.T) {
+	m := shown(t, true, sample(), 80, 24)
+	if got := footerOf(t, m); !strings.HasSuffix(got, "updated 14:22:07") {
+		t.Errorf("footer = %q, want it to end with updated 14:22:07", got)
+	}
+	if line := viewLines(t, m)[23]; runewidth.StringWidth(line) != 80 {
+		t.Errorf("footer is %d cells, want 80", runewidth.StringWidth(line))
+	}
+	m, _ = press(t, m, "r")
+	got := footerOf(t, m)
+	if !strings.HasSuffix(got, "updated 14:22:07") || !strings.Contains(got, "refreshing") {
+		t.Errorf("footer while refreshing = %q, want refreshing and the previous update time", got)
+	}
+}
+
+// TestView_FooterDropsTheTimestampBeforeTheCounts: on a terminal too
+// narrow for everything the update time goes first, then the row counts,
+// and the keys never. At 56 cells the counts and keys fit (41 cells) but
+// the timestamp (16 cells plus a gap) does not; at 60 everything fits.
+func TestView_FooterDropsTheTimestampBeforeTheCounts(t *testing.T) {
+	narrow := footerOf(t, shown(t, true, sample(), 56, 24))
+	if strings.Contains(narrow, "updated") {
+		t.Errorf("footer at 56 cells = %q, want the update time dropped", narrow)
+	}
+	if !strings.Contains(narrow, "more") || !strings.Contains(narrow, "q quit") {
+		t.Errorf("footer at 56 cells = %q, want the counts and keys kept", narrow)
+	}
+	wide := footerOf(t, shown(t, true, sample(), 60, 24))
+	if !strings.Contains(wide, "more") || !strings.HasSuffix(wide, "updated 14:22:07") {
+		t.Errorf("footer at 60 cells = %q, want the counts and the update time", wide)
+	}
+}
+
+// TestSpinnerTurnsOnlyWhileAFetchIsInFlight: starting a fetch also starts
+// the spinner, each tick advances it one frame and asks for the next, and
+// a tick that arrives after the result is ignored so the timer dies.
+func TestSpinnerTurnsOnlyWhileAFetchIsInFlight(t *testing.T) {
+	fake := providertest.Succeeding("claude", []provider.Window{{Name: "5h", RemainingPercent: 50}})
+	m := shown(t, true, sample(), 80, 24)
+	m.providers = []provider.Provider{fake}
+
+	m, cmd := press(t, m, "r")
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("r returned a %T, want a batch of the fetch and the spinner tick", cmd())
+	}
+	spun := false
+	for _, c := range batch {
+		if _, ok := c().(spinMsg); ok {
+			spun = true
+		}
+	}
+	if !spun {
+		t.Fatal("the fetch batch carries no spinner tick")
+	}
+	if got := footerOf(t, m); !strings.Contains(got, "⠋ refreshing") {
+		t.Errorf("footer at the start of a fetch = %q, want the first spinner frame", got)
+	}
+
+	m, next := step(t, m, spinMsg{})
+	if next == nil {
+		t.Fatal("a spinner tick while loading scheduled no next tick")
+	}
+	if got := footerOf(t, m); !strings.Contains(got, "⠙ refreshing") {
+		t.Errorf("footer after one tick = %q, want the second spinner frame", got)
+	}
+
+	m, _ = step(t, m, resultMsg{res: sample()})
+	m, late := step(t, m, spinMsg{})
+	if late != nil {
+		t.Error("a spinner tick after the result scheduled another tick")
+	}
+	if got := footerOf(t, m); strings.Contains(got, "refreshing") || !strings.Contains(got, "r refresh") {
+		t.Errorf("footer after the result = %q, want the keys back", got)
 	}
 }
