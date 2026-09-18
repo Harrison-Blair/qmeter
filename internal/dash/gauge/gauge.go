@@ -1,10 +1,13 @@
 // Package gauge draws the dashboard's fuel gauge: three rows of the same
 // width — a bezel with five tick marks, a track whose needle sits at the
-// remaining percentage, and a 0/50/100 scale under it.
+// remaining percentage, and a 0/50/100 scale under it. A window that knows
+// its period also gets a pace marker in the scale row: ▴ under the track
+// cell the needle would occupy if the window were being spent evenly, so
+// a needle left of the marker is being spent faster than even pace.
 //
 //	╭┬────┬─────┬────┬─────┬╮
 //	┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
-//	 0         50        100
+//	 0         50   ▴    100
 //
 // The package is pure: it takes a percentage and a width and returns
 // strings. Colour comes from lipgloss, so a caller that sets the renderer's
@@ -33,11 +36,18 @@ type Block struct {
 	Scale string
 }
 
+// NoPace, or any negative pace, draws a gauge without a pace marker: the
+// window's period is not known, so there is no even pace to mark.
+const NoPace = -1
+
 // The palette. Fill colour is per band (see Band); everything else is fixed.
+// The pace marker takes the countdown's cyan: it is a time-derived position,
+// never a health signal, so it must not borrow a band colour.
 var (
 	frameStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // bright black
 	needleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15")) // bright white
 	spentStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
+	paceStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")) // cyan
 )
 
 // Band returns the colour for a window with pct remaining: bright green
@@ -64,9 +74,11 @@ func Band(pct float64, rateLimited bool) lipgloss.Color {
 }
 
 // Render draws a gauge width cells wide (the ┴ caps included) for a window
-// with pct remaining. pct is clamped to [0, 100]. It returns an error, and
-// the zero Block, for a width under MinWidth.
-func Render(pct float64, width int, rateLimited bool) (Block, error) {
+// with pct remaining. pct is clamped to [0, 100]. pace is the fraction of
+// the window still ahead, clamped to [0, 1], and puts the pace marker under
+// that point of the track; NoPace leaves the marker out. It returns an
+// error, and the zero Block, for a width under MinWidth.
+func Render(pct float64, width int, rateLimited bool, pace float64) (Block, error) {
 	if width < MinWidth {
 		return Block{}, fmt.Errorf("gauge: width %d is under the %d-cell minimum (a %d-cell track plus two caps)",
 			width, MinWidth, MinWidth-2)
@@ -98,8 +110,23 @@ func Render(pct float64, width int, rateLimited bool) (Block, error) {
 	return Block{
 		Bezel: frameStyle.Render("╭" + bezelBody(n) + "╮"),
 		Track: track.String(),
-		Scale: frameStyle.Render(scale(n)),
+		Scale: scaleRow(n, pace),
 	}, nil
+}
+
+// scaleRow is the styled scale, with the pace marker over the label under
+// the cell it belongs to. The marker wins a collision with a label digit:
+// the labels are fixed and inferable, the marker is the information.
+func scaleRow(n int, pace float64) string {
+	if pace < 0 {
+		return frameStyle.Render(scale(n))
+	}
+	if pace > 1 {
+		pace = 1
+	}
+	cells := []rune(scale(n))
+	at := 1 + needleIndex(pace*100, n)
+	return frameStyle.Render(string(cells[:at])) + paceStyle.Render("▴") + frameStyle.Render(string(cells[at+1:]))
 }
 
 // Plain returns b with every escape sequence removed, for callers that want

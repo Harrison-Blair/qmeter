@@ -738,3 +738,49 @@ func findLine(t *testing.T, lines []string, sub string) string {
 	}
 	return lines[i]
 }
+
+// TestPaceMarkerFollowsTheWindowPeriod: a window that knows its period gets
+// a ▴ in its scale row at the fraction of the period still ahead; one that
+// does not is drawn exactly as before. At the 36-cell floor the track is
+// 20 cells, so 3h38m of a 5h window (0.727) is track cell 14, page
+// column 7 + 1 + 14 = 22.
+func TestPaceMarkerFollowsTheWindowPeriod(t *testing.T) {
+	window := func(period time.Duration) usage.Result {
+		return usage.Result{Windows: []provider.Window{{
+			Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68,
+			ResetsAt: now.Add(3*time.Hour + 38*time.Minute), Period: period,
+		}}}
+	}
+	paced := layout.Render(window(5*time.Hour), layout.MinColumn, opts(false))
+	scale := findLine(t, paced, "▴")
+	if !strings.Contains(scale, "100") {
+		t.Errorf("the marker is not on the scale row: %q", scale)
+	}
+	if cells := []rune(scale); cells[22] != '▴' {
+		t.Errorf("marker at column %d, want 22: %q", strings.IndexRune(scale, '▴'), scale)
+	}
+	if n := countLinesWith(paced, "▴"); n != 1 {
+		t.Errorf("%d lines carry a marker, want 1", n)
+	}
+
+	unpaced := layout.Render(window(0), layout.MinColumn, opts(false))
+	if hasLineWith(unpaced, "▴") {
+		t.Errorf("a window without a period has a pace marker:\n%s", strings.Join(unpaced, "\n"))
+	}
+}
+
+// TestPaceMarkerIsClampedToTheTrack: a reset already due sits at 0, and a
+// reset further away than the period (a provider's clock skew) at 100.
+func TestPaceMarkerIsClampedToTheTrack(t *testing.T) {
+	at := func(resets time.Time) []string {
+		return layout.Render(usage.Result{Windows: []provider.Window{{
+			Provider: "claude", Name: "5h", RemainingPercent: 68, ResetsAt: resets, Period: 5 * time.Hour,
+		}}}, layout.MinColumn, opts(false))
+	}
+	if scale := findLine(t, at(now.Add(-time.Minute)), "▴"); []rune(scale)[8] != '▴' {
+		t.Errorf("a due window's marker is not under the first cell: %q", scale)
+	}
+	if scale := findLine(t, at(now.Add(9*time.Hour)), "▴"); []rune(scale)[27] != '▴' {
+		t.Errorf("a window resetting beyond its period is not under the last cell: %q", scale)
+	}
+}

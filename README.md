@@ -22,7 +22,10 @@ A CLI tool to see your AI subscription usage limits
 
 `qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and
 under it a fuel gauge for every usage window of every provider it detects — what
-is left of the window, and how long until it resets.
+is left of the window, and how long until it resets. When the provider reports
+the window's period, a `▴` under the scale marks where the needle would sit if
+the window were being spent evenly: a needle left of the marker is being spent
+faster than even pace, one to its right slower.
 
 | Key | Does |
 | --- | --- |

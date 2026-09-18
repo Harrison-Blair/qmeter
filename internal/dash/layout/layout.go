@@ -399,12 +399,12 @@ func sectionHead(p provInfo, plan string, colw int) row {
 //	▸ 5h
 //	       ╭┬────┬─────┬────┬─────┬╮   [RL]
 //	 68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m
-//	        0         50        100
+//	        0         50   ▴    100
 func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth int) []row {
 	gw := gaugeWidth(colw, meterWidth)
 	blockw := gw + pctWidth + 1 + 1 + cdWidth
 	left := (colw - blockw) / 2
-	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited)
+	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now))
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
 		// column, which is exactly a 22-cell gauge. Rather than panic on
@@ -435,6 +435,17 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 
 	center := func(r row) row { return row{}.pad(left).join(r).pad(colw) }
 	return []row{center(name), center(bezel), center(track), center(scale)}
+}
+
+// pace is the fraction of w's period still ahead of now, clamped to [0, 1],
+// or gauge.NoPace when the provider gave no period or no reset time: there
+// is then no even pace to draw.
+func pace(w provider.Window, now time.Time) float64 {
+	if w.Period <= 0 || w.ResetsAt.IsZero() {
+		return gauge.NoPace
+	}
+	f := float64(w.ResetsAt.Sub(now)) / float64(w.Period)
+	return max(0, min(1, f))
 }
 
 // statusRow is an error or not-detected line inside a section: the glyph
