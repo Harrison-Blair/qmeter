@@ -41,16 +41,18 @@ the next fetch is in flight.
 | `r` | fetch every provider again |
 | `q`, `Esc`, `Ctrl-C` | quit |
 
-Two flags:
+Dashboard flags:
 
 - `--filter claude,codex` shows only the providers named — comma-separated or
   repeated, out of `claude`, `codex`, `opencode-go` and `cursor`. Without it
   every provider is shown.
 - `--no-banner` replaces the wordmark with the one-line summary header.
+- `--vertical` stacks providers in one full-width column and stretches meters
+  to the terminal width, leaving 14 cells for percentages, spacing, and countdowns.
 
 The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
-both still honour `--filter`. Colour follows [`NO_COLOR`](https://no-color.org).
+both still honour `--filter` and ignore `--vertical`. Colour follows [`NO_COLOR`](https://no-color.org).
 
 The `usage` and `pace` text tables use provider colors, remaining-allowance bands,
 cyan reset countdowns (red when rate limited), and colored status messages. Pace
@@ -100,7 +102,9 @@ over the configured palette and disables colour output.
 `meter_width` is the preferred complete meter width in terminal cells, from 22
 through 200. Meters grow toward that target, use one or two columns according
 to the available terminal width, and shrink only when necessary to keep the
-dashboard usable.
+dashboard usable. `--vertical` overrides `meter_width`: meters fill the available
+width even when it exceeds 200 cells. Without `--vertical`, the configured
+preference still applies.
 
 `refresh_interval` is the number of seconds between automatic refreshes. It
 defaults to 60 and accepts values from 1 through 86400. The interval begins

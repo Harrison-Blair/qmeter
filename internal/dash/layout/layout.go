@@ -21,7 +21,8 @@
 //
 // Column arithmetic is fixed at every width: percentage 6, a space, the
 // gauge, a space, countdown 6. A gauge grows toward the configured preference
-// and is centred with those fields as one block. Below a 36-cell terminal (a
+// and is centred with those fields as one block. Vertical mode uses one full-width
+// column and stretches the gauge to fill it. Below a 36-cell terminal (a
 // 20-cell track) the layout says so and draws nothing.
 package layout
 
@@ -67,6 +68,9 @@ type Options struct {
 	// is drawn regardless.
 	Banner bool
 
+	// Vertical uses one full-width provider column and stretches gauges to fit.
+	Vertical bool
+
 	// Now is the instant countdowns are measured from. The zero value
 	// means time.Now(); tests pass a fixed instant.
 	Now time.Time
@@ -77,7 +81,7 @@ type Options struct {
 
 	// MeterWidth is the preferred complete gauge width, caps included. Zero
 	// uses DefaultMeterWidth. It may shrink to gauge.MinWidth when the
-	// terminal cannot fit the preference.
+	// terminal cannot fit the preference. Vertical overrides this preference.
 	MeterWidth int
 }
 
@@ -144,6 +148,10 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	cols, colw, gutter := columns(width, len(present), target)
+	if o.Vertical {
+		cols, colw, gutter = 1, width, 0
+		target = width - (pctWidth + 1 + 1 + cdWidth)
+	}
 	for i := 0; i < len(present); i += cols {
 		if i > 0 && width >= sectionGapMin {
 			rows = append(rows, row{})

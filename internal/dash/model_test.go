@@ -882,3 +882,52 @@ func TestSpinnerTurnsOnlyWhileAFetchIsInFlight(t *testing.T) {
 		t.Errorf("footer after the result = %q, want the keys back", got)
 	}
 }
+
+func TestVerticalSurvivesResizeAndScroll(t *testing.T) {
+	for _, showBanner := range []bool{false, true} {
+		m := New(Options{Vertical: true, Banner: showBanner, MeterWidth: 22, Now: func() time.Time { return now }})
+		m, _ = step(t, m, resultMsg{res: sample()})
+		t.Cleanup(func() {
+			if m.cancelRefresh != nil {
+				m.cancelRefresh()
+			}
+		})
+		for _, width := range []int{110, 36, 260, 132} {
+			m = resize(t, m, width, 16)
+			m, _ = press(t, m, "home")
+			lines := viewLines(t, m)
+			foundGauge := false
+			for _, line := range lines {
+				start, end := strings.Index(line, "╭"), strings.Index(line, "╮")
+				if start >= 0 && end > start {
+					foundGauge = true
+					if got := runewidth.StringWidth(line[start:end]) + 1; got != width-14 {
+						t.Fatalf("width %d: gauge width = %d, want %d", width, got, width-14)
+					}
+				}
+			}
+			if !foundGauge {
+				t.Fatalf("width %d: no gauge visible", width)
+			}
+			for _, line := range lines {
+				if runewidth.StringWidth(line) != width {
+					t.Fatalf("line width != %d: %q", width, line)
+				}
+			}
+			for !strings.Contains(m.View(), "▲ cursor") {
+				previous := m.offset
+				m, _ = press(t, m, "j")
+				if m.offset == previous {
+					t.Fatalf("width %d: scrolling did not reach cursor", width)
+				}
+			}
+			m, _ = press(t, m, "end")
+			if m.offset == 0 || !strings.Contains(m.View(), "token expired") {
+				t.Fatalf("width %d: end did not reach the last provider's error", width)
+			}
+			if viewLines(t, m)[0] != lines[0] {
+				t.Fatal("scrolling moved pinned header")
+			}
+		}
+	}
+}

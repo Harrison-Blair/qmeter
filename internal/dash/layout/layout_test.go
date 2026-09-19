@@ -884,3 +884,57 @@ func TestLongWindowNamesPreserveCompletePaceBadge(t *testing.T) {
 		}
 	}
 }
+
+func TestVerticalStretchesMetersInOneColumn(t *testing.T) {
+	for _, width := range []int{35, 36, 110, 132, 260} {
+		for _, target := range []int{0, 22, 75, 200} {
+			for _, showBanner := range []bool{false, true} {
+				t.Run(fmt.Sprintf("width_%d_target_%d_banner_%v", width, target, showBanner), func(t *testing.T) {
+					o := opts(showBanner)
+					o.Vertical, o.MeterWidth = true, target
+					lines := layout.Render(sample(), width, o)
+					for _, line := range lines {
+						if runewidth.StringWidth(line) != width {
+							t.Fatalf("line width != %d: %q", width, line)
+						}
+					}
+					if width == 35 {
+						if len(lines) != 1 || strings.TrimSpace(lines[0]) != "terminal too narrow" {
+							t.Fatalf("narrow output = %q", lines)
+						}
+						return
+					}
+					widths := renderedGaugeWidths(lines)
+					if len(widths) != 8 {
+						t.Fatalf("gauge count = %d, want 8", len(widths))
+					}
+					for _, got := range widths {
+						if got != width-14 {
+							t.Fatalf("gauge width = %d, want %d", got, width-14)
+						}
+					}
+					next := 0
+					headers := []string{"◆ claude", "● codex", "○ opencode-go", "▲ cursor"}
+					for _, line := range lines {
+						count := 0
+						for _, header := range headers {
+							if strings.Contains(line, header) {
+								count++
+								if next >= len(headers) || header != headers[next] {
+									t.Fatalf("provider order at line %q", line)
+								}
+								next++
+							}
+						}
+						if count > 1 {
+							t.Fatalf("providers share header: %q", line)
+						}
+					}
+					if next != len(headers) {
+						t.Fatalf("provider headers = %d, want 4", next)
+					}
+				})
+			}
+		}
+	}
+}

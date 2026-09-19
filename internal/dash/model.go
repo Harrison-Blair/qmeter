@@ -92,12 +92,15 @@ type Options struct {
 	// header is the one-line summary.
 	Banner bool
 
+	// Vertical uses one full-width provider column and stretches gauges to fit.
+	Vertical bool
+
 	// Theme is the provider identity palette. The zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default.
+	// dashboard default. Vertical overrides this preference.
 	MeterWidth int
 
 	// RefreshInterval is the delay after each completed fetch before the
@@ -120,6 +123,7 @@ type Options struct {
 type Model struct {
 	providers         []provider.Provider
 	banner            bool
+	vertical          bool
 	theme             theme.Theme
 	meterWidth        int
 	refreshInterval   time.Duration
@@ -160,6 +164,7 @@ func New(o Options) Model {
 	m := Model{
 		providers:       o.Providers,
 		banner:          o.Banner,
+		vertical:        o.Vertical,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
 		refreshInterval: o.RefreshInterval,
@@ -340,6 +345,7 @@ func (m Model) View() string {
 func (m Model) frame() (header, body []string, fits int) {
 	page := layout.Render(m.res, m.width, layout.Options{
 		Banner:     m.banner,
+		Vertical:   m.vertical,
 		Now:        m.now(),
 		Theme:      m.theme,
 		MeterWidth: m.meterWidth,
