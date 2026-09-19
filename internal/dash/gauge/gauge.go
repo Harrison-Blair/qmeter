@@ -41,6 +41,12 @@ type Block struct {
 // window's period is not known, so there is no even pace to mark.
 const NoPace = -1
 
+// NoForecast leaves the track unchanged; RunsDry marks exhaustion at cell zero.
+const (
+	NoForecast = -1
+	RunsDry    = -2
+)
+
 // The palette. Fill colour is per band (see Band); everything else is fixed.
 // The bold bright-cyan pace marker is a time-derived position,
 // never a health signal, so it must not borrow a band colour.
@@ -79,7 +85,8 @@ func Band(pct float64, rateLimited bool) lipgloss.Color {
 // the window still ahead, clamped to [0, 1], and puts the pace marker above
 // that point of the track; NoPace leaves the marker out. It returns an
 // error, and the zero Block, for a width under MinWidth.
-func Render(pct float64, width int, rateLimited bool, pace float64) (Block, error) {
+// forecast marks remaining allowance at reset with ◇, or exhaustion with ✕.
+func Render(pct float64, width int, rateLimited bool, pace, forecast float64) (Block, error) {
 	if width < MinWidth {
 		return Block{}, fmt.Errorf("gauge: width %d is under the %d-cell minimum (a %d-cell track plus two caps)",
 			width, MinWidth, MinWidth-2)
@@ -100,7 +107,20 @@ func Render(pct float64, width int, rateLimited bool, pace float64) (Block, erro
 
 	var track strings.Builder
 	track.WriteString(capCell)
-	if needle > 0 {
+	marker := -1
+	glyph := "◇"
+	color := display.Forecast
+	switch {
+	case forecast == RunsDry:
+		marker, glyph, color = 0, "✕", display.RateLimited
+	case forecast >= 0:
+		marker = needleIndex(forecast, n)
+	}
+	if marker >= 0 && marker < needle {
+		track.WriteString(fill.Render(strings.Repeat("▰", marker)))
+		track.WriteString(lipgloss.NewStyle().Foreground(color).Render(glyph))
+		track.WriteString(fill.Render(strings.Repeat("▰", needle-marker-1)))
+	} else if needle > 0 {
 		track.WriteString(fill.Render(strings.Repeat("▰", needle)))
 	}
 	track.WriteString(needleStyle.Render("▲"))

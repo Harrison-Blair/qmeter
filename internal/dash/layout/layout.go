@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"github.com/Harrison-Blair/qmeter/internal/display"
 	ipace "github.com/Harrison-Blair/qmeter/internal/pace"
+	"math"
 	"strings"
 	"time"
 
@@ -415,7 +416,24 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 	gw := gaugeWidth(colw, meterWidth)
 	blockw := gw + pctWidth + 1 + 1 + cdWidth
 	left := (colw - blockw) / 2
-	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now))
+	projection := ipace.Forecast(w, now)
+	forecast := float64(gauge.NoForecast)
+	note := ""
+	noteStyle := dimStyle
+	switch projection.State {
+	case "survives":
+		forecast = *projection.RemainingAtReset
+		note = fmt.Sprintf("lands at %.0f%%", math.Round(forecast))
+	case "dry":
+		forecast = gauge.RunsDry
+		note = "dry in " + formatResets(projection.ExhaustionAt.Sub(now))
+		noteStyle = plain.Foreground(display.RateLimited)
+	case "empty":
+		forecast = gauge.RunsDry
+		note = "empty"
+		noteStyle = plain.Foreground(display.RateLimited)
+	}
+	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now), forecast)
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
 		// column, which is exactly a 22-cell gauge. Rather than panic on
@@ -432,7 +450,11 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 	badgeStyle := lipgloss.NewStyle().Foreground(display.PaceColor(status)).Bold(true)
 	nameWidth := blockw - 2 - 1 - runewidth.StringWidth(badge)
 	name := row{}.put(arrow, "▸ ").put(nameStyle, truncMid(w.Name, nameWidth)).
-		put(plain, " ").put(badgeStyle, badge).pad(blockw)
+		put(plain, " ").put(badgeStyle, badge)
+	if note != "" && name.cells+2+runewidth.StringWidth(note) <= blockw {
+		name = name.put(plain, "  ").put(noteStyle, note)
+	}
+	name = name.pad(blockw)
 
 	bezel := row{}.pad(gaugeIndent).raw(g.Bezel, gw).pad(blockw - badgeWidth)
 	if w.RateLimited {

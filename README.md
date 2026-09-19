@@ -120,7 +120,10 @@ the whole file, and continues with all defaults.
 
 `qmeter pace` lists each detected usage limit and compares remaining allowance with
 how much of its period remains. The table shows `PROVIDER`, `WINDOW`, `PACE`,
-`REMAINING`, `EXPECTED`, and `RESETS`.
+`REMAINING`, `EXPECTED`, `RUNS OUT`, and `RESETS`.
+`RUNS OUT` projects average consumption: `in 2h10m` when allowance runs out before
+reset, `empty` when already exhausted or rate limited, and `-` otherwise. Forecasts
+require valid timing and 5% elapsed, except already-dry windows need only valid timing.
 
 - **ahead**: remaining allowance is more than 5 percentage points below expected; allowance is being used faster.
 - **on pace**: remaining allowance is within 5 percentage points of expected, including both boundaries.
@@ -146,6 +149,10 @@ providers are omitted. `--json` retains the usage envelope (`windows`, `errors`,
 `undetected`) and existing window fields (including `remaining_percent`), adding `pace` and
 `expected_remaining_percent` to each window. The expected percentage is `null` for
 `n/a`; all three envelope arrays are present even when empty.
+Each pace window also includes `projected_exhaustion_at` (RFC 3339, or `null`)
+and `projected_remaining_at_reset` (number, or `null`). Both are `null` without a
+forecast; survivors have no exhaustion time, while dry or empty windows land at 0%.
+These fields are exclusive to `pace --json`.
 
 ## Install
 
