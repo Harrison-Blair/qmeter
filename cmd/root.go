@@ -5,6 +5,7 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/cmd/dash"
 	"github.com/Harrison-Blair/qmeter/cmd/pace"
+	"github.com/Harrison-Blair/qmeter/cmd/resets"
 	"github.com/Harrison-Blair/qmeter/cmd/update"
 	"github.com/Harrison-Blair/qmeter/cmd/usage"
 	"github.com/Harrison-Blair/qmeter/cmd/version"
@@ -46,6 +47,7 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(usage.New())
 	root.AddCommand(pace.New())
+	root.AddCommand(resets.New())
 	root.AddCommand(version.New())
 	root.AddCommand(update.New())
 

@@ -94,17 +94,6 @@ type provInfo struct {
 	color lipgloss.TerminalColor
 }
 
-// order is the drawing order of the sections, and must stay in step with
-// usage.Registry(): claude, codex, opencode-go, cursor. Sections are laid
-// out row-major, so at two columns the second row is opencode-go on the
-// left and cursor on the right.
-var order = []provInfo{
-	{id: "claude", icon: "◆"},
-	{id: "codex", icon: "●"},
-	{id: "opencode-go", icon: "○"},
-	{id: "cursor", icon: "▲"},
-}
-
 // The palette outside the gauge. Provider-coloured styles are built per
 // section, since the colour is the provider's.
 var (
@@ -203,6 +192,7 @@ func header(r usage.Result, width int, want bool, th theme.Theme) []row {
 // bannerRow colours one row of the wordmark in four fixed provider bands.
 // Runs of one colour are styled together, and blanks are left unstyled.
 func bannerRow(art string, th theme.Theme) row {
+	order := display.ProviderOrder()
 	out := row{}
 	runes := []rune(art)
 	for i := 0; i < len(runes); {
@@ -214,7 +204,7 @@ func bannerRow(art string, th theme.Theme) row {
 		if runes[i] == ' ' {
 			out = out.put(plain, text)
 		} else {
-			out = out.put(lipgloss.NewStyle().Foreground(th.Accent(order[bannerBand(i)].id)), text)
+			out = out.put(lipgloss.NewStyle().Foreground(th.Accent(order[bannerBand(i)])), text)
 		}
 		i = j
 	}
@@ -222,6 +212,7 @@ func bannerRow(art string, th theme.Theme) row {
 }
 
 func bannerBand(col int) int {
+	order := display.ProviderOrder()
 	i := col * len(order) / banner.Width
 	if i >= len(order) {
 		i = len(order) - 1
@@ -295,7 +286,8 @@ func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 
 	out := make([]provInfo, 0, len(seen))
 	known := map[string]bool{}
-	for _, p := range order {
+	for _, id := range display.ProviderOrder() {
+		p := provInfo{id: id, icon: display.ProviderGlyph(id)}
 		known[p.id] = true
 		if seen[p.id] {
 			p.color = th.Accent(p.id)
@@ -304,7 +296,7 @@ func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 	}
 	for _, id := range firstSeenOrder(r) {
 		if !known[id] {
-			out = append(out, provInfo{id: id, icon: "•", color: th.Accent(id)})
+			out = append(out, provInfo{id: id, icon: display.ProviderGlyph(id), color: th.Accent(id)})
 		}
 	}
 	return out

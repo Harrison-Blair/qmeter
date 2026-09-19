@@ -39,6 +39,7 @@ the next fetch is in flight.
 | `Space` / `PgDn`, `b` / `PgUp` | scroll a page |
 | `g` / `Home`, `G` / `End` | jump to the top or the bottom |
 | `r` | fetch every provider again |
+| `t` | toggle gauges and the reset timeline |
 | `q`, `Esc`, `Ctrl-C` | quit |
 
 Dashboard flags:
@@ -153,6 +154,26 @@ Each pace window also includes `projected_exhaustion_at` (RFC 3339, or `null`)
 and `projected_remaining_at_reset` (number, or `null`). Both are `null` without a
 forecast; survivors have no exhaustion time, while dry or empty windows land at 0%.
 These fields are exclusive to `pace --json`.
+
+## Reset timeline
+
+`qmeter resets` shows what frees up next, sorted by reset time. On terminals at
+least 70 cells wide, each window appears on a shared linear axis from now to
+seven days. The provider glyph marks its reset, colored by remaining allowance;
+`▸` marks a reset beyond seven days. Unknown reset times sort last and have no
+marker. An `↑RL` label identifies a reset that lifts a rate limit.
+Narrow terminals and piped output use a plain `PROVIDER WINDOW REMAINING RESETS`
+table. The dashboard's `t` key toggles the same timeline; refresh and scrolling
+work on both pages, and each launch starts with gauges.
+
+```sh
+qmeter resets
+qmeter resets --filter claude,codex
+qmeter resets --filter claude --filter codex --json
+```
+
+`--json` preserves the usage envelope and window fields, sorts its windows, and
+adds `resets_in_seconds` (whole seconds until reset, or `null` when unknown).
 
 ## Install
 
