@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/bits"
 	"sort"
 	"strings"
 	"time"
@@ -40,28 +41,36 @@ const rateLimitSuffix = " ↑RL"
 // Extra width belongs to the name.
 func Row(w provider.Window, now time.Time, width int, r *lipgloss.Renderer, th display.Theme) string {
 	nameWidth := width - 60
-	name := w.Name
-	if w.RateLimited {
-		name = runewidth.Truncate(name, nameWidth-runewidth.StringWidth(rateLimitSuffix), "…") + rateLimitSuffix
-	}
-	name = runewidth.Truncate(name, nameWidth, "…")
-	name += strings.Repeat(" ", nameWidth-runewidth.StringWidth(name))
+	return timelineRow(w, now, nameWidth, 43, r, th)
+}
+
+func timelineRow(w provider.Window, now time.Time, nameWidth, axisWidth int, r *lipgloss.Renderer, th display.Theme) string {
+	name := timelineName(w, nameWidth)
 	health := r.NewStyle().Foreground(display.Band(w.RemainingPercent, w.RateLimited))
-	axis := strings.Repeat(" ", 43)
+	axis := strings.Repeat(" ", axisWidth)
 	countdown := "-"
 	if !w.ResetsAt.IsZero() {
 		d := w.ResetsAt.Sub(now)
-		cell := int(max(0, d) / (4 * time.Hour))
+		cell := fittedCell(d, axisWidth)
 		marker := display.ProviderGlyph(w.Provider)
 		if d > 7*24*time.Hour {
-			cell, marker = 42, "▸"
+			cell, marker = axisWidth-1, "▸"
 		}
-		axis = strings.Repeat("·", cell) + health.Render(marker) + strings.Repeat(" ", 42-cell)
+		axis = strings.Repeat("·", cell) + health.Render(marker) + strings.Repeat(" ", axisWidth-1-cell)
 		countdown = strings.TrimPrefix(usage.ResetsCell(provider.Window{ResetsAt: w.ResetsAt}, now), "in ")
 	}
 	countdown = runewidth.Truncate(countdown, 6, "…")
 	countdown += strings.Repeat(" ", 6-runewidth.StringWidth(countdown))
 	return r.NewStyle().Foreground(th.Accent(w.Provider)).Render(display.ProviderGlyph(w.Provider)) + " " + name + " " + health.Render(fmt.Sprintf("%5.1f%%", w.RemainingPercent)) + " " + axis + " " + display.ResetCell(r, countdown, w.RateLimited).Style.Render(countdown)
+}
+
+func timelineName(w provider.Window, width int) string {
+	name := w.Name
+	if w.RateLimited {
+		name = runewidth.Truncate(name, width-runewidth.StringWidth(rateLimitSuffix), "…") + rateLimitSuffix
+	}
+	name = runewidth.Truncate(name, width, "…")
+	return name + strings.Repeat(" ", width-runewidth.StringWidth(name))
 }
 
 // RenderText uses the destination's terminal width, or a plain table for pipes.
@@ -109,6 +118,52 @@ func Rows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer, t
 		out = append(out, strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
 	}
 	return out
+}
+
+// FitRows draws a timeline with a shared name field and gives its remaining
+// width to the axis. Narrow widths retain the ordinary table layout.
+func FitRows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer, th display.Theme) []string {
+	if width < MinWidth {
+		return Rows(result, now, width, r, th)
+	}
+	if len(result.Windows) == 0 && len(result.Errors) == 0 && len(result.Undetected) == 0 {
+		return []string{"no providers detected"}
+	}
+	nameWidth := 10
+	for _, w := range result.Windows {
+		name := w.Name
+		if w.RateLimited {
+			name += rateLimitSuffix
+		}
+		nameWidth = max(nameWidth, runewidth.StringWidth(name))
+	}
+	nameWidth = min(nameWidth, width-60)
+	axisWidth := width - nameWidth - 17
+	out := []string{strings.Repeat(" ", nameWidth+10) + "now" + strings.Repeat(" ", axisWidth-6) + "+7d"}
+	for _, w := range Sort(result.Windows) {
+		out = append(out, timelineRow(w, now, nameWidth, axisWidth, r, th))
+	}
+	var table [][]display.Cell
+	table = append(table, usage.MessageRows(r, result)...)
+	if len(table) > 0 {
+		var b strings.Builder
+		_ = display.Table(&b, table) // strings.Builder writes cannot fail.
+		out = append(out, strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
+	}
+	return out
+}
+
+func fittedCell(d time.Duration, axisWidth int) int {
+	if d <= 0 {
+		return 0
+	}
+	const horizon = 7 * 24 * time.Hour
+	if d >= horizon {
+		return axisWidth - 1
+	}
+	high, low := bits.Mul64(uint64(d), uint64(axisWidth-1))
+	cell, _ := bits.Div64(high, low, uint64(horizon))
+	return int(cell)
 }
 
 // RenderJSON extends usage's envelope without changing its window wire fields.

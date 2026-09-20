@@ -483,11 +483,12 @@ func TestFetch_ParsesRouteAResponse(t *testing.T) {
 	srv, got := serve(t, http.StatusOK, fixture(t, "usage_summary_free.json"))
 	store, _ := storeFor(t, "google-oauth2|103512345678901234567")
 
-	windows, err := New(
+	fetched, err := New(
 		WithCredentialPath(store),
 		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 	).Fetch(testCtx(t))
+	windows := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -547,7 +548,8 @@ func TestFetch_EmitsTotalAndAutoWindows(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, fixture(t, "usage_summary_pro_team.json"))
 	store, _ := storeFor(t, "auth0|team-user")
 
-	windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	windows := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -603,7 +605,8 @@ func TestFetch_ToleratesEmptyTeamUsageObject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, _ := serve(t, http.StatusOK, fixture(t, tt.fixture))
-			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			windows := fetched.Windows
 			if err != nil {
 				t.Fatalf("Fetch() error = %v, want nil", err)
 			}
@@ -669,7 +672,8 @@ func TestFetch_NoUsableIndividualPlanErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, _ := serve(t, http.StatusOK, tt.body)
 
-			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			windows := fetched.Windows
 			// Silently reporting "no usage" would read as a healthy account
 			// with nothing used; Fetch must never return (nil, nil).
 			if err == nil {
@@ -703,7 +707,8 @@ func TestFetch_MissingPercentagesError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, _ := serve(t, http.StatusOK, tt.body)
 
-			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			windows := fetched.Windows
 			// Rendering an absent percentage as 0.0% would read as "nothing
 			// used", the opposite of "we do not know".
 			if err == nil {
@@ -727,7 +732,8 @@ func TestFetch_ZeroPercentagesAreReported(t *testing.T) {
 	store, _ := storeFor(t, "auth0|fresh-cycle")
 	srv, _ := serve(t, http.StatusOK, `{"membershipType":"pro","individualUsage":{"plan":{"enabled":true,"totalPercentUsed":0,"autoPercentUsed":0}}}`)
 
-	windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	windows := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -772,7 +778,8 @@ func TestFetch_UnparsableBillingCycleKeepsThePercentages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, _ := serve(t, http.StatusOK, tt.body)
 
-			windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+			windows := fetched.Windows
 			if err != nil {
 				t.Fatalf("Fetch() error = %v, want nil: unusable cycle bounds must not lose the percentages", err)
 			}
@@ -826,7 +833,8 @@ func TestFetch_MalformedBodyErrors(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, fixture(t, "usage_summary_malformed.json"))
 	store, _ := storeFor(t, "auth0|malformed")
 
-	windows, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	fetched, err := New(WithCredentialPath(store), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testCtx(t))
+	windows := fetched.Windows
 	if err == nil {
 		t.Fatalf("Fetch() = %+v, want an error for a malformed body", windows)
 	}
@@ -872,11 +880,12 @@ func TestFetch_UsesEnvOverrideUserID(t *testing.T) {
 	t.Setenv(envToken, token)
 	srv, got := serve(t, http.StatusOK, fixture(t, "usage_summary_free.json"))
 
-	windows, err := New(
+	fetched, err := New(
 		WithCredentialPath(missingStore(t)),
 		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 	).Fetch(testCtx(t))
+	windows := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}

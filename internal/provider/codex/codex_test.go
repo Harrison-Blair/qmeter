@@ -532,7 +532,8 @@ func TestFetch_ParsesSnakeCaseFields(t *testing.T) {
 	srv, req := usageServer(t, "usage_snake_case.json")
 	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -575,7 +576,8 @@ func TestFetch_ParsesCamelCaseFields(t *testing.T) {
 	srv, _ := usageServer(t, "usage_camel_case.json")
 	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -608,7 +610,8 @@ func TestFetch_ParsesAdditionalRateLimits(t *testing.T) {
 	srv, _ := usageServer(t, "usage_additional_limits.json")
 	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -654,7 +657,8 @@ func TestFetch_SkipsWindowsWithoutUsedPercent(t *testing.T) {
 	srv, _ := usageServer(t, "usage_missing_windows.json")
 	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -675,7 +679,8 @@ func TestFetch_PlanFallsBackToIDTokenClaim(t *testing.T) {
 	}
 
 	srv, _ := usageServer(t, "usage_no_plan_type.json")
-	got, err := testProvider(t, srv, store).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv, store).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -704,7 +709,8 @@ func TestFetch_EnvOverrideSendsAccountHeaderOnlyWhenSet(t *testing.T) {
 
 			srv, req := usageServer(t, "usage_no_plan_type.json")
 			// The store would supply an account id; the override must not use it.
-			got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+			fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+			got := fetched.Windows
 			if err != nil {
 				t.Fatalf("Fetch() error = %v, want nil", err)
 			}
@@ -771,7 +777,8 @@ func TestFetch_MalformedResponseIsAnError(t *testing.T) {
 	clearEnv(t)
 	srv, _ := usageServer(t, "usage_malformed.json")
 
-	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	got := fetched.Windows
 	if err == nil {
 		t.Fatalf("Fetch() = %+v, error = nil; want a decode error", got)
 	}
@@ -918,7 +925,8 @@ func TestFetch_ResponseWithoutRateLimitsIsAnError(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+			fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+			got := fetched.Windows
 			if err == nil {
 				t.Fatalf("Fetch() = %+v, error = nil; want an error for a response with no rate limits", got)
 			}
@@ -944,7 +952,8 @@ func TestFetch_EmptyRateLimitObjectIsNotAnError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -961,7 +970,8 @@ func TestFetch_ParsesLiveResponseShape(t *testing.T) {
 	clearEnv(t)
 	srv, _ := usageServer(t, "usage_live_shape.json")
 
-	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -1028,7 +1038,8 @@ func TestFetch_LiveWindowFallsBackToResetAfterSeconds(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv, fixture("auth_chatgpt.json")).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -1069,7 +1080,8 @@ func TestFetch_ReferenceSpellingWinsWhenBothArePresent(t *testing.T) {
 	p := testProvider(t, srv, fixture("auth_chatgpt.json"))
 	// Repeated: a map-order-dependent winner passes intermittently.
 	for i := range 20 {
-		got, err := p.Fetch(testContext(t))
+		fetched, err := p.Fetch(testContext(t))
+		got := fetched.Windows
 		if err != nil {
 			t.Fatalf("attempt %d: Fetch() error = %v, want nil", i, err)
 		}

@@ -62,22 +62,50 @@ prompt or a Claude Code statusline. It needs a short-lived response cache so a p
 does not call four APIs on every keypress. That cache would be the first state shared
 between qmeter runs, so decide where it lives together with the sample log.
 
-## Set aside: Who spent it (tokens per model and provider)
+## No storage needed
 
-Dropped from the shortlist on 2026-09-19 because it is machine dependent, and qmeter
-runs on a server as well as personal machines. Kept here because the investigation was
-real work and the design is finished.
+### Who spent it (claude surface breakdown; backlog only)
 
-**What was found**
+Originally set aside on 2026-09-19 because the token-attribution sources found were
+machine-local logs, and the owner requires features to behave identically on the
+always-on server and personal machines. A live capture on 2026-09-19 found an
+account-side `seven_day_breakdown` in claude's existing
+`GET https://api.anthropic.com/api/oauth/usage` response. This removes the machine-local
+blocker for claude surface attribution only. The owner's decision is to record it in
+the backlog, not spec or plan a feature yet.
+
+**Live-capture discovery**
+
+- The 2026-09-19 capture's breakdown is by surface — which product spent the
+  allowance — not by model, project, repository or session. Rows carry `key`,
+  `display_name` and `percent`: `claude_code` / Claude Code 96%, `chat` / Chats 3%,
+  `cowork` / Cowork 1%, and `other` / Other 0%. The older committed
+  `internal/provider/claude/testdata/usage_live_shape.json` fixture instead has model
+  rows and `extra_section`; this capture has surface rows and `extra_usage`.
+- These are shares of the seven-day window's usage (they sum to 100%), not percentages
+  of its limit, with
+  `as_of: 2026-09-20T02:26:27.476308+00:00` and
+  `window_started_at: 2026-09-14T10:00:00.454255+00:00`. There are no token counts or
+  dollar amounts in this breakdown.
+- This is claude only. In the same capture run, codex, cursor and opencode-go returned
+  nothing comparable; any feature based on it degrades to nothing for those three.
+- It needs no new request, credential or stored history: qmeter already calls this
+  endpoint, and the data is account-side, with no local logs involved.
+- qmeter does not read `seven_day_breakdown` today. In
+  `internal/provider/claude/claude.go`, the decoder maps `utilization` / `resets_at`
+  on named windows and `percent`, `resets_at`, `group`, `kind` and
+  `scope.model.display_name` on the `limits` array (and other matching top-level
+  arrays). It has no `seven_day_breakdown` field; the object is skipped.
+
+**Earlier token-attribution investigation (still set aside)**
 
 - The vendor endpoints qmeter calls return quota percentages, reset times and (Codex)
   request counts. No token counts.
 - Documented account-side token reporting exists only for API organisations
   (Anthropic Usage and Cost Admin API) and enterprise plans (Claude Enterprise
   Analytics API, OpenAI Compliance API). Not for individual subscriptions.
-- Not checked: whether the live subscription endpoints carry undocumented token
-  fields. The probe needed to read stored credentials and was blocked by the
-  permission guard.
+- The earlier live-endpoint probe was blocked by the permission guard. The later
+  capture above found surface percentages, not a token-attribution source.
 - Per-request token counts by model and timestamp do exist in local CLI session logs,
   verified on one machine:
   - Claude Code: `~/.claude/projects/**/*.jsonl`, `message.usage` with `input_tokens`,
@@ -95,7 +123,9 @@ real work and the design is finished.
 - These logs cover only CLI sessions run on that machine. Web apps, IDEs and other
   devices appear nowhere. The formats are undocumented and can change.
 
-**Settled design, if it comes back**
+**Earlier token-view design, if token attribution comes back**
+
+This retained design concerns token counts, not the newly discovered surface data.
 
 - Grouped (by provider, with provider totals) and Ranked (all models by total) views on
   one shared scale and time range.
@@ -106,12 +136,13 @@ real work and the design is finished.
   and overall, computed from summed tokens. A high hit % does not mean low cost.
 - Counts visible under every model; distinct glyph and colour per category.
 
-**Ways to bring it back**
+**Earlier token-attribution alternatives (not owner-approved)**
 
 1. Per-machine, labelled "this machine's sessions".
 2. Merge machines: each exports its token records and one qmeter reads several. Shares
    the transport question with "which machine records" above.
-3. Finish the live endpoint check, in case an account-side source exists after all.
+3. Find an account-side token source; the captured surface breakdown does not supply
+   tokens per model or provider.
 
 ## Smaller ideas
 

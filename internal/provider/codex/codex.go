@@ -122,24 +122,24 @@ func detectReason(err error) string {
 	return err.Error()
 }
 
-// Fetch retrieves the current Codex usage windows.
+// Fetch retrieves the current Codex usage windows and credit balance.
 //
 // The main rate limit contributes up to two windows and every additional
 // rate limit up to two more; a window the response does not report a
 // percentage for is skipped rather than shown as 0%.
-func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	cred, err := p.resolveCredential(ctx)
 	if err != nil {
 		if errors.Is(err, errAPIKeyMode) {
 			// credstore wraps every non-not-found loader error with
 			// "credential store: ", but this message is already the final
 			// user-facing sentence, so it is reported without that prefix.
-			return nil, errAPIKeyMode
+			return provider.Usage{}, errAPIKeyMode
 		}
 		// Returned as-is: the message is already final, prefix-free text
 		// (internal/usage renders untyped errors verbatim) and the typed
 		// errors still match errors.Is/errors.As.
-		return nil, err
+		return provider.Usage{}, err
 	}
 
 	headers := map[string]string{
@@ -158,15 +158,15 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 		Client:  p.client,
 	}, &resp)
 	if err != nil {
-		return nil, fmt.Errorf("fetch usage: %w", err)
+		return provider.Usage{}, fmt.Errorf("fetch usage: %w", err)
 	}
 	// A response that mentions no rate limit at all — a bare null, an empty
 	// object, credits only — is a broken or unexpected shape, not an account
 	// with nothing to report; saying so beats printing nothing.
 	if !resp.HasRateLimit && !resp.HasAdditional {
-		return nil, errNoRateLimits
+		return provider.Usage{}, errNoRateLimits
 	}
-	return p.windows(resp, cred), nil
+	return provider.Usage{Windows: p.windows(resp, cred), Balances: resp.balances()}, nil
 }
 
 // usageURL is the usage endpoint under the configured base URL.
@@ -251,7 +251,7 @@ func additionalName(name, position string) string {
 var errNoRateLimits = errors.New("usage response carried no rate limits")
 
 // usageResponse is the part of GET /backend-api/wham/usage qmeter reads.
-// "credits" and anything else the endpoint adds are ignored.
+// Unknown fields are ignored.
 type usageResponse struct {
 	PlanType string
 
@@ -260,6 +260,8 @@ type usageResponse struct {
 
 	Additional    []additionalLimit
 	HasAdditional bool
+
+	Credits creditUsage
 }
 
 // UnmarshalJSON decodes the response tolerantly: unknown fields are ignored,
@@ -278,8 +280,42 @@ func (r *usageResponse) UnmarshalJSON(data []byte) error {
 			if !isJSONNull(raw) && json.Unmarshal(raw, &r.Additional) == nil {
 				r.HasAdditional = true
 			}
+		case "credits":
+			_ = json.Unmarshal(raw, &r.Credits)
 		}
 	})
+}
+
+type creditUsage struct {
+	Balance   *float64
+	Unlimited bool
+}
+
+// UnmarshalJSON tolerates malformed optional credit fields without losing
+// the windows. A null balance is unknown, while either 0 or "0" is known.
+func (c *creditUsage) UnmarshalJSON(data []byte) error {
+	return decodeObject(data, func(key string, raw json.RawMessage) {
+		switch key {
+		case "balance":
+			if !isJSONNull(raw) {
+				if n := decodeNumber(raw); n != nil && !math.IsNaN(*n) && !math.IsInf(*n, 0) {
+					c.Balance = n
+				}
+			}
+		case "unlimited":
+			_ = json.Unmarshal(raw, &c.Unlimited)
+		}
+	})
+}
+
+func (r usageResponse) balances() []provider.Balance {
+	if r.Credits.Balance == nil && !r.Credits.Unlimited {
+		return nil
+	}
+	return []provider.Balance{{
+		Provider: providerID, Name: "credits", Unit: "credits",
+		Remaining: r.Credits.Balance, Unlimited: r.Credits.Unlimited,
+	}}
 }
 
 // rateLimit is the main rate limit's pair of windows.

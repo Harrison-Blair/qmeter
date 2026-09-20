@@ -86,14 +86,14 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 }
 
 // Fetch retrieves the current billing cycle's usage from route A and
-// normalizes it into the "total" and "auto" windows.
+// normalizes it into the "total" and "auto" windows and reported balances.
 //
 // Only route A is implemented. The Connect-RPC route stays a known fallback
 // should route A be withdrawn; no code here reaches for it.
-func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	cred, _, err := p.credential(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("resolve credential: %w", err)
+		return provider.Usage{}, fmt.Errorf("resolve credential: %w", err)
 	}
 
 	var summary usageSummary
@@ -112,13 +112,17 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 	// httpx maps 401/403 to provider.ErrTokenExpired{Tool: toolName} and 429
 	// to provider.ErrRateLimited; %w keeps both matchable.
 	if err := httpx.Get(ctx, opts, &summary); err != nil {
-		return nil, fmt.Errorf("fetch usage summary: %w", err)
+		return provider.Usage{}, fmt.Errorf("fetch usage summary: %w", err)
 	}
 	// windows' errors already name the usage summary, so they are returned
 	// unwrapped rather than doubling the words. Either way nothing here ever
 	// prefixes an error with "cursor": the renderer puts the provider name in
 	// its own column.
-	return summary.windows(p.ID())
+	windows, err := summary.windows(p.ID())
+	if err != nil {
+		return provider.Usage{}, err
+	}
+	return provider.Usage{Windows: windows, Balances: summary.balances(p.ID())}, nil
 }
 
 // usageSummaryURL is the route A endpoint.
@@ -174,10 +178,10 @@ type usageSummary struct {
 			// under us (or individualUsage was null or renamed), the second
 			// that this account genuinely has no individual plan usage.
 			// Both are reported as errors, never as "no windows".
-			Enabled   *bool   `json:"enabled"`
-			Used      float64 `json:"used"`
-			Limit     float64 `json:"limit"`
-			Remaining float64 `json:"remaining"`
+			Enabled   *bool    `json:"enabled"`
+			Used      *float64 `json:"used"`
+			Limit     *float64 `json:"limit"`
+			Remaining *float64 `json:"remaining"`
 
 			// The two percentages this provider actually reports are
 			// pointers for the same reason: rendering an absent value as
@@ -189,15 +193,33 @@ type usageSummary struct {
 			TotalPercentUsed *float64 `json:"totalPercentUsed"`
 		} `json:"plan"`
 
-		// OnDemand is parsed for completeness; its limit and remaining are
-		// null on accounts without on-demand spending. Not surfaced yet.
-		OnDemand struct {
-			Enabled   bool    `json:"enabled"`
-			Used      float64 `json:"used"`
-			Limit     float64 `json:"limit"`
-			Remaining float64 `json:"remaining"`
+		// OnDemand and its amounts can be null. Only enabled accounts
+		// with reported amounts contribute a balance.
+		OnDemand *struct {
+			Enabled   bool     `json:"enabled"`
+			Used      *float64 `json:"used"`
+			Limit     *float64 `json:"limit"`
+			Remaining *float64 `json:"remaining"`
 		} `json:"onDemand"`
 	} `json:"individualUsage"`
+}
+
+func (s usageSummary) balances(id string) []provider.Balance {
+	var out []provider.Balance
+	plan := s.IndividualUsage.Plan
+	if plan.Enabled != nil && *plan.Enabled && (plan.Used != nil || plan.Limit != nil || plan.Remaining != nil) {
+		out = append(out, provider.Balance{
+			Provider: id, Name: "included", Unit: "unconfirmed",
+			Used: plan.Used, Limit: plan.Limit, Remaining: plan.Remaining,
+		})
+	}
+	if demand := s.IndividualUsage.OnDemand; demand != nil && demand.Enabled && (demand.Used != nil || demand.Limit != nil || demand.Remaining != nil) {
+		out = append(out, provider.Balance{
+			Provider: id, Name: "on-demand", Unit: "unconfirmed",
+			Used: demand.Used, Limit: demand.Limit, Remaining: demand.Remaining,
+		})
+	}
+	return out
 }
 
 // errNoPlanEnabled is returned when individualUsage.plan.enabled is absent

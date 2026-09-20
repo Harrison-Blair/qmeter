@@ -37,11 +37,12 @@ func TestRunOptionsReachModelOptions(t *testing.T) {
 		Providers:       []provider.Provider{p},
 		Banner:          true,
 		Vertical:        true,
+		Fit:             true,
 		Theme:           th,
 		MeterWidth:      83,
 		RefreshInterval: 17 * time.Second,
 	})
-	if got.Ctx != ctx || !got.Banner || !got.Vertical || len(got.Providers) != 1 || got.Providers[0] != p {
+	if got.Ctx != ctx || !got.Banner || !got.Vertical || !got.Fit || len(got.Providers) != 1 || got.Providers[0] != p {
 		t.Errorf("model options lost run state: %#v", got)
 	}
 	if got.Theme != th || got.MeterWidth != 83 {
@@ -69,14 +70,14 @@ func newBlocker() *blocker {
 func (b *blocker) ID() string                            { return "claude" }
 func (b *blocker) Detect(context.Context) (bool, string) { return true, "" }
 
-func (b *blocker) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (b *blocker) Fetch(ctx context.Context) (provider.Usage, error) {
 	b.once.Do(func() { close(b.started) })
 	select {
 	case <-ctx.Done():
 		close(b.observed)
-		return nil, ctx.Err()
+		return provider.Usage{}, ctx.Err()
 	case <-time.After(30 * time.Second):
-		return nil, errors.New("the fetch was left to run to completion")
+		return provider.Usage{}, errors.New("the fetch was left to run to completion")
 	}
 }
 

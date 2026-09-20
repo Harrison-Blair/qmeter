@@ -22,10 +22,11 @@ type Fake struct {
 	DetectOK     bool
 	DetectReason string
 
-	// Windows and FetchErr are returned by Fetch(), after Delay elapses (or
+	// Windows, Balances and FetchErr are returned by Fetch(), after Delay elapses (or
 	// the context is done, whichever comes first). When FetchErr is set,
-	// Fetch returns it instead of Windows.
+	// Fetch returns zero Usage with the error.
 	Windows  []provider.Window
+	Balances []provider.Balance
 	FetchErr error
 	Delay    time.Duration
 
@@ -51,8 +52,8 @@ func (f *Fake) Fetches() int {
 }
 
 // Fetch waits Delay (or until ctx is done, whichever is first), then
-// returns FetchErr if set, else Windows.
-func (f *Fake) Fetch(ctx context.Context) ([]provider.Window, error) {
+// returns FetchErr if set, else Windows and Balances.
+func (f *Fake) Fetch(ctx context.Context) (provider.Usage, error) {
 	f.mu.Lock()
 	f.fetches++
 	f.mu.Unlock()
@@ -63,13 +64,13 @@ func (f *Fake) Fetch(ctx context.Context) ([]provider.Window, error) {
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return provider.Usage{}, ctx.Err()
 		}
 	}
 	if f.FetchErr != nil {
-		return nil, f.FetchErr
+		return provider.Usage{}, f.FetchErr
 	}
-	return f.Windows, nil
+	return provider.Usage{Windows: f.Windows, Balances: f.Balances}, nil
 }
 
 // Succeeding returns a Fake that is detected and whose Fetch immediately

@@ -27,7 +27,8 @@ func TestSucceeding_DetectsAndFetchesWindows(t *testing.T) {
 		t.Errorf("Detect() ok = false, want true (reason %q)", reason)
 	}
 
-	got, err := p.Fetch(context.Background())
+	fetched, err := p.Fetch(context.Background())
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -56,7 +57,8 @@ func TestSlow_FetchReturnsAfterDelay(t *testing.T) {
 	p := providertest.Slow("cursor", 20*time.Millisecond, windows)
 
 	start := time.Now()
-	got, err := p.Fetch(context.Background())
+	fetched, err := p.Fetch(context.Background())
+	got := fetched.Windows
 	elapsed := time.Since(start)
 
 	if err != nil {
