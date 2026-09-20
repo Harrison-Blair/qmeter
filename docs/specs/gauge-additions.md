@@ -1,7 +1,7 @@
 # Spec: run-out forecast, reset timeline, money ledger
 
-Status: 1–2 implemented and reviewed on `dev`; 3 not started, awaiting live captures
-(agent credentials unavailable). Source: the qmeter design bench shortlist.
+Status: 1–2 implemented and reviewed on `dev`; 3 not started, live captures reviewed;
+Cursor units remain unresolved. Source: the qmeter design bench shortlist.
 Develop on `dev` or a branch off it; never commit to `main`.
 
 All three read account-wide vendor data, so they behave the same on a server and on a
@@ -259,18 +259,49 @@ it, instead of only a percentage.
 
 ### Prerequisite: capture live responses
 
-The field shapes below come from test fixtures, and a fixture can outlive the API it
-copied. Before writing any decoder, capture one live response per vendor (keys and
-value types are enough) and add it as a new fixture. One known discrepancy already:
-the Codex fixture has `credits.balance` as a number (`3.5`), but Codex's own session
-logs show it as a string (`"0"`). The decoder must accept both.
+The field shapes below come from one live response per vendor, except the fixture-only
+OpenCode Go fields called out below; existing fixtures can outlive the API they copied.
+The captures were taken on 2026-09-19, but their raw bodies are private. New fixtures
+for this feature must be synthetic, using only the redacted shape files and listed values
+below, never copies (including redacted copies) of the raw captures. Before writing
+any decoder, add those synthetic fixtures. The Codex capture confirms `credits.balance`
+is a string (`"0"`), against the fixture's number (`3.5`). The decoder must accept
+both. The older committed Claude `internal/provider/claude/testdata/usage_live_shape.json`
+fixture has `extra_section` and model `seven_day_breakdown` rows; the 2026-09-19
+capture has `extra_usage` and surface rows.
 
 | Provider | Fields | Today |
 |---|---|---|
-| cursor | `individualUsage.plan {used, limit, remaining}` and `onDemand {enabled, used, limit, remaining}`; unit unconfirmed until the live capture (the fixture value 14.25 of 20 fits either dollars or cents, and `cursor.go` has no unit comment) — `limit` and `remaining` are `null` without on-demand spending | parsed, not surfaced |
-| codex | `credits {has_credits, unlimited, balance}`, `spend_control {enabled}` | ignored by design in `usageResponse` |
-| claude | `extra_section.utilization` — inferred to be a percentage from sibling fields, unconfirmed until the live capture (the fixture value is 0), no dollar amount | not decoded |
-| opencode-go | `spend` / `limit` seen only in the unknown-fields fixture, as strings (e.g. `"4.80"`); that fixture also has a `caps` object (e.g. `"$12"`) — note both for when this is seen live | out of scope until seen live |
+| cursor | `individualUsage.plan {enabled, used, limit, remaining, breakdown {included, bonus, total}, autoPercentUsed, apiPercentUsed, totalPercentUsed}` and `individualUsage.onDemand {enabled, used, limit, remaining}`; this `membershipType: "free"` account has plan `used`/`limit`/`remaining` all `0`, on-demand disabled with `used: 0` and `limit`/`remaining: null`; units remain unconfirmed | parsed in part, not surfaced |
+| codex | `credits {has_credits, unlimited, overage_limit_reached, balance, approx_local_messages, approx_cloud_messages}` — balance is the string `"0"`, both message arrays are `[0, 0]`; `spend_control {reached, individual_limit}` — `false` and `null` here, no `enabled` field; `rate_limit_reset_credits {available_count, applicable_available_count}` — `2` and `0` here | ignored by design in `usageResponse` |
+| claude | `extra_usage {is_enabled, monthly_limit, used_credits, utilization, currency, decimal_places, disabled_reason, user_disabled, spend_limit_reached, credits_ever_enabled, daily, weekly}` and `spend {used, limit, percent, severity, enabled, disabled_reason, cap, balance, auto_reload, disclaimer, can_purchase_credits, can_toggle}`; `extra_section.utilization` does not exist in this capture | not decoded |
+| opencode-go | Only `usage.{rolling,weekly,monthly}.{status,percent,resetsAt}`; no `spend`, `limit` or `caps` keys and no money in the live response | remains out of scope: money fields must be seen live |
+
+Claude's `extra_usage` reports `currency: "USD"` and `decimal_places: 2`, with
+`monthly_limit: 100`, `used_credits: 0` and `utilization: 0`; it is disabled with
+`disabled_reason: "out_of_credits"`, and `daily`/`weekly` are null.
+The only live Claude money values with explicit minor-unit precision are `spend.used`
+and `spend.limit`, `{amount_minor, currency, exponent}` objects: `0` and `100` minor
+units respectively, both `USD` with exponent `2`. Convert `amount_minor` using the
+reported exponent into the reported `USD` currency ($0 and $1), then normalize `USD`
+to `Unit` `usd`.
+`spend.percent` is `0`, `severity` is `"normal"`, `enabled` is `false` and
+`disabled_reason` is `"out_of_credits"`. `spend.cap.money` is null;
+`spend.cap.credits` is `{amount_minor: 100, exponent: 2}`. `spend.balance` and
+`spend.auto_reload` are null, and `can_purchase_credits`/`can_toggle` are false.
+Claude is the only vendor in these captures to state its currency and exponent;
+its explicit money amounts need no unit guessing.
+
+Cursor's `plan.breakdown` is `{included: 0, bonus: 9, total: 9}`, and
+`autoPercentUsed`/`apiPercentUsed`/`totalPercentUsed` are `9`/`0`/`4.5`. These look
+like request counts and percentages rather than money; the capture does not establish
+their exact meaning or the units of `used`/`limit`/`remaining`. Resolving the units
+needs a paid-account capture or one with on-demand spending enabled. The
+`usage_summary_pro_team.json` fixture's `14.25` of `20` remains unexplained.
+
+OpenCode Go has now been seen live with no money fields. The `spend`/`limit` strings
+and `caps` object in the `usage_unknown_fields.json` fixture remain fixture-only
+evidence; they do not establish a live balance to decode.
 
 ### Data model
 
@@ -280,7 +311,7 @@ A new normalized type beside `provider.Window`:
 type Balance struct {
     Provider  string   // "cursor"
     Name      string   // "included", "on-demand", "credits", "extra usage"
-    Unit      string   // "usd", "credits", "percent"
+    Unit      string   // "usd", "credits", "percent", "unconfirmed"
     Used      *float64 // nil when the vendor does not report it
     Limit     *float64
     Remaining *float64
@@ -312,15 +343,31 @@ covers both.
    `internal/provider/provider_test.go`, and every `.Fetch(` call site across the
    provider tests — 68 of them today
    (`grep -rn '\.Fetch(' --include=*_test.go . | wc -l`).
+2. `qmeter usage --json` remains unchanged; only `qmeter spend` outputs balances, so
+   existing consumers see no change.
+3. Claude `spend` converts `amount_minor` with its reported `exponent` into reported
+   `USD`, normalized to `Unit` `usd`. Cursor's amount units are unconfirmed: future
+   output uses bare numbers and `Unit` `unconfirmed`, never USD.
+4. Cursor's live free-account `onDemand` is disabled, with `used: 0` and
+   `limit`/`remaining: null`; omit its ledger row until it is enabled.
+5. Claude `spend.balance` is null, but when explicit `spend.used` and `spend.limit`
+   are present, normalized `Remaining` is `limit - used`: USD 1.00 - USD 0.00 = USD
+   1.00 in this capture.
+6. Claude yields one ledger row: use `spend` when it has usable money values. When
+   usable `spend.used`/`spend.limit` money values are absent, use
+   `extra_usage.utilization` for a percent-unit row and calculate remaining percent
+   from utilization. Do not interpret
+   `extra_usage.monthly_limit` or `extra_usage.used_credits` as dollars.
 
 ### `qmeter spend`
 
 New `cmd/spend/` and `internal/spend/`.
 
 - Text: one table, `PROVIDER NAME LEFT OF BAR`. Dollars as `$5.75`, credits as a plain
-  number, percent as `%`. The bar is 20 cells in the health band colour of the
-  remaining fraction; no bar when there is no limit. `unlimited` replaces the amount
-  when `Unlimited` is set. Providers that report nothing are omitted, not shown empty.
+  number, percent as `%`, and `unconfirmed` amounts as bare numbers. The bar is 20
+  cells in the health band colour of the remaining fraction; no bar when there is no
+  limit. `unlimited` replaces the amount when `Unlimited` is set. Providers that
+  report nothing are omitted, not shown empty.
 - JSON: `{ "balances": [...], "errors": [...], "undetected": [...] }`.
 
 ### Dashboard
@@ -331,13 +378,19 @@ New `cmd/spend/` and `internal/spend/`.
 
 ### Tests
 
-1. Per provider, decoder tests against the new live-shape fixture and the existing
-   ones: cursor with and without on-demand (`null` limit), cursor with the whole
+1. Per provider, decoder tests against new synthetic fixtures matching the redacted
+   live shapes and the existing ones: cursor with and without on-demand (`null` limit),
+   cursor with the whole
    `onDemand` object `null` and with `plan.{used,limit,remaining}` all `null`
    (`usage_summary_nulls.json`), codex balance as number and as string, codex
    `unlimited`, codex `hasCredits` camelCase (`usage_camel_case.json`) and
-   `credits: {}` (`usage_missing_windows.json`), claude utilization, absent sections
-   yield no balance.
+   `credits: {}` (`usage_missing_windows.json`), Claude `extra_usage` with object-level
+   `currency`/`decimal_places` and its percent-unit fallback with remaining derived
+   from `utilization`, and `spend.used`/`spend.limit` money objects with `amount_minor`,
+   `currency`, and `exponent`, plus null `spend.balance`/`spend.cap.money` fields;
+   usable spend values, even with null `spend.balance`, yield exactly one `usd` row;
+   when usable `spend.used`/`spend.limit` values are absent, `extra_usage.utilization`
+   yields exactly one percent row; absent sections yield no balance.
 2. `Balance.MarshalJSON`: snake_case, `null` for unknowns.
 3. `usage.Run`: balances are collected in provider order; a provider error still drops
    only that provider.
@@ -346,9 +399,3 @@ New `cmd/spend/` and `internal/spend/`.
    golden here, unlike `layout`'s `testdata/*.txt` goldens — and `spend.RenderJSON`.
 5. `layout`: ledger rows present with balances, page identical to today without them.
 6. Every existing provider and `usage`/`pace` test still passes unchanged in meaning.
-
-### Open questions
-
-- Should `qmeter usage --json` also gain `balances`? Default: no, only `spend` does,
-  so existing consumers see no change.
-- Currency: assume USD and say so in `Unit`. Revisit only if a vendor reports another.
