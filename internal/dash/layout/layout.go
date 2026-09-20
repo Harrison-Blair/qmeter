@@ -72,6 +72,12 @@ type Options struct {
 	// Vertical uses one full-width provider column and stretches gauges to fit.
 	Vertical bool
 
+	// Fit stretches content to the available width and distributes spare body rows.
+	Fit bool
+
+	// BodyHeight is the capacity below the pinned header and above the footer.
+	BodyHeight int
+
 	// Now is the instant countdowns are measured from. The zero value
 	// means time.Now(); tests pass a fixed instant.
 	Now time.Time
@@ -82,7 +88,8 @@ type Options struct {
 
 	// MeterWidth is the preferred complete gauge width, caps included. Zero
 	// uses DefaultMeterWidth. It may shrink to gauge.MinWidth when the
-	// terminal cannot fit the preference. Vertical overrides this preference.
+	// terminal cannot fit the preference. Fit uses it for column selection, then
+	// stretches meters; Vertical overrides it with one full-width column.
 	MeterWidth int
 }
 
@@ -129,7 +136,7 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	target := meterTarget(o.MeterWidth)
-	rows := header(r, width, o.Banner, o.Theme)
+	rows := pageHeader(r, width, o)
 
 	present := presentProviders(r, o.Theme)
 	if len(present) == 0 {
@@ -140,7 +147,12 @@ func Render(r usage.Result, width int, o Options) []string {
 	cols, colw, gutter := columns(width, len(present), target)
 	if o.Vertical {
 		cols, colw, gutter = 1, width, 0
-		target = width - (pctWidth + 1 + 1 + cdWidth)
+	}
+	if o.Vertical || o.Fit {
+		target = colw - (pctWidth + 1 + 1 + cdWidth)
+	}
+	if o.Fit {
+		return finish(append(rows, fitSections(r, present, cols, colw, gutter, now, target, o.BodyHeight)...), width)
 	}
 	for i := 0; i < len(present); i += cols {
 		if i > 0 && width >= sectionGapMin {
@@ -358,6 +370,11 @@ func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, 
 // section is one provider's block: its rule, windows, balances, and whatever the
 // run has to say about it.
 func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) []row {
+	return spreadBlocks(sectionBlocks(r, p, colw, now, meterWidth), 0)
+}
+
+// sectionBlocks attaches the heading to the first item; each later item is atomic.
+func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) [][]row {
 	var windows []provider.Window
 	for _, w := range r.Windows {
 		if w.Provider == p.id {
@@ -369,24 +386,28 @@ func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int
 		plan = windows[0].Plan
 	}
 
-	out := []row{sectionHead(p, plan, colw)}
+	out := [][]row{{sectionHead(p, plan, colw)}}
 	for _, w := range windows {
-		out = append(out, windowBlock(w, p, colw, now, meterWidth)...)
+		out = append(out, windowBlock(w, p, colw, now, meterWidth))
 	}
 	for _, b := range r.Balances {
 		if b.Provider == p.id {
-			out = append(out, ledgerRow(b, colw, meterWidth))
+			out = append(out, []row{ledgerRow(b, colw, meterWidth)})
 		}
 	}
 	for _, e := range r.Errors {
 		if e.Provider == p.id {
-			out = append(out, statusRow(errStyle, "!", "error: ", e.Message, colw))
+			out = append(out, []row{statusRow(errStyle, "!", "error: ", e.Message, colw)})
 		}
 	}
 	for _, u := range r.Undetected {
 		if u.Provider == p.id {
-			out = append(out, statusRow(warnStyle, "?", "not detected: ", u.Message, colw))
+			out = append(out, []row{statusRow(warnStyle, "?", "not detected: ", u.Message, colw)})
 		}
+	}
+	if len(out) > 1 {
+		out[1] = append(out[0], out[1]...)
+		out = out[1:]
 	}
 	return out
 }

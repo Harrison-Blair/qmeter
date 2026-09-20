@@ -68,3 +68,30 @@ func TestRenderTimeline(t *testing.T) {
 		}
 	}
 }
+
+func TestFitTimelineSpacing(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	result := usage.Result{Windows: []provider.Window{{Provider: "codex", Name: "first", ResetsAt: now.Add(time.Hour)}, {Provider: "codex", Name: "second", ResetsAt: now.Add(2 * time.Hour)}}, Errors: []usage.ProviderError{{Provider: "cursor", Message: "offline"}}}
+	for _, width := range []int{40, 70, 120, 240} {
+		compact := RenderTimeline(result, width, Options{Fit: true, Now: now})[1:]
+		got := RenderTimeline(result, width, Options{Fit: true, BodyHeight: 11, Now: now})[1:]
+		if len(got) != 11 {
+			t.Fatalf("width %d body height=%d", width, len(got))
+		}
+		if got[0] != compact[0] || got[1] != compact[1] || got[6] != compact[2] || got[10] != compact[3] {
+			t.Fatalf("width %d ruler/first row must stay attached, gaps 4,3: %q", width, got)
+		}
+		overflow := RenderTimeline(result, width, Options{Fit: true, BodyHeight: 2, Now: now})[1:]
+		if strings.Join(overflow, "\n") != strings.Join(compact, "\n") {
+			t.Fatal("overflow changed compact rows")
+		}
+		single := RenderTimeline(usage.Result{Windows: result.Windows[:1]}, width, Options{Fit: true, BodyHeight: 7, Now: now})[1:]
+		if strings.TrimSpace(single[2]) == "" || !strings.Contains(single[3], "first") {
+			t.Fatalf("single ruler/item block not centered: %q", single)
+		}
+		empty := RenderTimeline(usage.Result{}, width, Options{Fit: true, BodyHeight: 11, Now: now})[1:]
+		if len(empty) != 1 || strings.TrimSpace(empty[0]) != "no providers detected" {
+			t.Fatal("empty timeline moved")
+		}
+	}
+}

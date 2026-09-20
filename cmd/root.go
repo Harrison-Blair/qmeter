@@ -42,7 +42,7 @@ func NewRootCmd() *cobra.Command {
 	root.PersistentFlags().Bool("json", false, "output JSON instead of text")
 
 	// The root command's own behaviour — the dashboard, --filter,
-	// --no-banner and --vertical — is wired by cmd/dash, after the persistent flags it
+	// --no-banner, --vertical and --fit — is wired by cmd/dash, after the persistent flags it
 	// reads and before the subcommands it must not shadow.
 	dash.Attach(root)
 

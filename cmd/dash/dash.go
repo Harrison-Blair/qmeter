@@ -41,6 +41,8 @@ func Attach(root *cobra.Command) {
 	root.Flags().Bool("no-banner", false, "hide the qmeter wordmark")
 	root.Flags().Bool("vertical", false, "stack providers vertically with full-width meters")
 
+	root.Flags().Bool("fit", false, "fill dashboard width and height (meter_width selects columns); combine with --vertical or --no-banner (ignored for JSON/pipes)")
+
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		names, err := cmd.Flags().GetStringSlice("filter")
 		if err != nil {
@@ -51,6 +53,10 @@ func Attach(root *cobra.Command) {
 			return err
 		}
 		vertical, err := cmd.Flags().GetBool("vertical")
+		if err != nil {
+			return err
+		}
+		fit, err := cmd.Flags().GetBool("fit")
 		if err != nil {
 			return err
 		}
@@ -103,6 +109,7 @@ func Attach(root *cobra.Command) {
 			Providers:       providers,
 			Banner:          !noBanner,
 			Vertical:        vertical,
+			Fit:             fit,
 			Theme:           settings.Theme,
 			MeterWidth:      settings.MeterWidth,
 			RefreshInterval: settings.RefreshInterval,

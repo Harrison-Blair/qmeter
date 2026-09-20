@@ -96,12 +96,16 @@ type Options struct {
 	// Vertical uses one full-width provider column and stretches gauges to fit.
 	Vertical bool
 
+	// Fit stretches content to the available width and distributes spare body rows.
+	Fit bool
+
 	// Theme is the provider identity palette. The zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default. Vertical overrides this preference.
+	// dashboard default. Fit uses it for column selection, then stretches meters;
+	// Vertical overrides it with one full-width column.
 	MeterWidth int
 
 	// RefreshInterval is the delay after each completed fetch before the
@@ -125,6 +129,7 @@ type Model struct {
 	providers         []provider.Provider
 	banner            bool
 	vertical          bool
+	fit               bool
 	timeline          bool
 	theme             theme.Theme
 	meterWidth        int
@@ -167,6 +172,7 @@ func New(o Options) Model {
 		providers:       o.Providers,
 		banner:          o.Banner,
 		vertical:        o.Vertical,
+		fit:             o.Fit,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
 		refreshInterval: o.RefreshInterval,
@@ -352,9 +358,16 @@ func (m Model) frame() (header, body []string, fits int) {
 	if m.timeline {
 		draw = layout.RenderTimeline
 	}
+	head := 1
+	if m.banner && m.width >= banner.Width {
+		head = banner.Height
+	}
+	pinned := min(head, max(0, m.height-1))
 	page := draw(m.res, m.width, layout.Options{
 		Banner:     m.banner,
 		Vertical:   m.vertical,
+		Fit:        m.fit,
+		BodyHeight: max(0, m.height-pinned-1),
 		Now:        m.now(),
 		Theme:      m.theme,
 		MeterWidth: m.meterWidth,
@@ -364,10 +377,6 @@ func (m Model) frame() (header, body []string, fits int) {
 	// Below MinWidth the page is a single apology, and there is nothing to
 	// pin: it is the body, so a narrow terminal still shows why it is
 	// empty rather than an empty screen.
-	head := 1
-	if m.banner && m.width >= banner.Width {
-		head = banner.Height
-	}
 	if (m.timeline || m.width >= layout.MinWidth) && len(page) > head {
 		header, body = page[:head], page[head:]
 	} else {

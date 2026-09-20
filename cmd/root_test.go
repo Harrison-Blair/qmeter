@@ -79,7 +79,7 @@ func TestRoot_RunsTheDashboardWithItsOwnFlags(t *testing.T) {
 	if root.RunE == nil {
 		t.Error("the root command has no behaviour of its own")
 	}
-	for _, name := range []string{"filter", "no-banner", "vertical"} {
+	for _, name := range []string{"filter", "no-banner", "vertical", "fit"} {
 		if f := root.Flags().Lookup(name); f == nil {
 			t.Errorf("root has no --%s flag", name)
 		}
@@ -92,7 +92,7 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(--help): %v", err)
 	}
-	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--json"} {
+	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--fit", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help does not mention %q:\n%s", want, out.String())
 		}
@@ -108,5 +108,17 @@ func TestExecuteWithArgs_UnknownCommandStillFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `unknown command "bogus"`) {
 		t.Fatalf("error = %v, want an unknown-command error", err)
+	}
+}
+
+func TestFitIsRootOnly(t *testing.T) {
+	for _, name := range []string{"usage", "pace", "resets", "spend", "version", "update"} {
+		root := NewRootCmd()
+		root.SetArgs([]string{name, "--fit"})
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: --fit") {
+			t.Fatalf("%s accepted root-only fit flag: %v", name, err)
+		}
 	}
 }

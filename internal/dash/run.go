@@ -25,12 +25,16 @@ type RunOptions struct {
 	// Vertical uses one full-width provider column and stretches gauges to fit.
 	Vertical bool
 
+	// Fit stretches content to the available width and distributes spare body rows.
+	Fit bool
+
 	// Theme is the provider identity palette. Its zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default. Vertical overrides this preference.
+	// dashboard default. Fit uses it for column selection, then stretches meters;
+	// Vertical overrides it with one full-width column.
 	MeterWidth int
 
 	// RefreshInterval is the delay after each completed fetch before the
@@ -78,6 +82,7 @@ func modelOptions(ctx context.Context, opts RunOptions) Options {
 		Providers:       opts.Providers,
 		Banner:          opts.Banner,
 		Vertical:        opts.Vertical,
+		Fit:             opts.Fit,
 		Theme:           opts.Theme,
 		MeterWidth:      opts.MeterWidth,
 		RefreshInterval: opts.RefreshInterval,

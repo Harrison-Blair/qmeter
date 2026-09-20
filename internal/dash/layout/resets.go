@@ -18,8 +18,22 @@ func RenderTimeline(result usage.Result, width int, o Options) []string {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	lines := finish(header(result, width, o.Banner, o.Theme), width)
-	lines = append(lines, resets.Rows(result, now, width, lipgloss.DefaultRenderer(), o.Theme)...)
+	lines := finish(pageHeader(result, width, o), width)
+	draw := resets.Rows
+	if o.Fit {
+		draw = resets.FitRows
+	}
+	body := draw(result, now, width, lipgloss.DefaultRenderer(), o.Theme)
+	if o.Fit {
+		if len(result.Windows)+len(result.Errors)+len(result.Undetected) > 0 {
+			rows := fitTimeline(body, o.BodyHeight)
+			body = make([]string, len(rows))
+			for i, row := range rows {
+				body[i] = row.text
+			}
+		}
+	}
+	lines = append(lines, body...)
 	for i, line := range lines {
 		line = ansi.Truncate(line, width, "")
 		lines[i] = line + blanks(width-lipgloss.Width(line))
