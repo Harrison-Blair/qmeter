@@ -103,10 +103,10 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 
 // Fetch retrieves the current usage windows, in the order rolling, weekly,
 // monthly; windows the response omits are skipped.
-func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	key, _, err := p.credential(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("resolve credential: %w", err)
+		return provider.Usage{}, fmt.Errorf("resolve credential: %w", err)
 	}
 
 	var resp usageResponse
@@ -119,14 +119,14 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 		},
 		Client: p.httpClient,
 	}, &resp); err != nil {
-		return nil, fmt.Errorf("fetch usage: %w", err)
+		return provider.Usage{}, fmt.Errorf("fetch usage: %w", err)
 	}
 
 	windows, err := resp.windows()
 	if err != nil {
-		return nil, fmt.Errorf("parse usage response: %w", err)
+		return provider.Usage{}, fmt.Errorf("parse usage response: %w", err)
 	}
-	return windows, nil
+	return provider.Usage{Windows: windows}, nil
 }
 
 // usageResponse is the documented shape of GET /zen/go/v1/usage. Unknown

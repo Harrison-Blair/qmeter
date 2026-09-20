@@ -1,0 +1,32 @@
+{
+  "billingCycleStart": "2030-01-01T00:00:00Z",
+  "billingCycleEnd": "2030-02-01T00:00:00Z",
+  "membershipType": "free",
+  "limitType": "user",
+  "isUnlimited": false,
+  "autoModelSelectedDisplayMessage": "Synthetic auto message",
+  "namedModelSelectedDisplayMessage": "Synthetic named message",
+  "individualUsage": {
+    "plan": {
+      "enabled": true,
+      "used": 0,
+      "limit": 0,
+      "remaining": 0,
+      "breakdown": {
+        "included": 0,
+        "bonus": 9,
+        "total": 9
+      },
+      "autoPercentUsed": 9,
+      "apiPercentUsed": 0,
+      "totalPercentUsed": 4.5
+    },
+    "onDemand": {
+      "enabled": false,
+      "used": 0,
+      "limit": null,
+      "remaining": null
+    }
+  },
+  "teamUsage": {}
+}

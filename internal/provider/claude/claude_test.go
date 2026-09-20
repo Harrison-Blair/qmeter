@@ -366,7 +366,8 @@ func TestFetch_ParsesFourWindows(t *testing.T) {
 	srv, rec := serveFixture(t, "usage_four_windows.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -407,7 +408,8 @@ func TestFetch_EnvOverrideLeavesPlanEmpty(t *testing.T) {
 	p := newProvider(t, pointAt(srv)...)
 	t.Setenv(envVar, "env-token")
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -430,7 +432,8 @@ func TestFetch_ParsesScopedPerModelLimits_SkipsUnknown(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_scoped_limits.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -459,7 +462,8 @@ func TestFetch_ResetsAtAcceptsISOStringAndEpochNumber(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_epoch_resets.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -486,7 +490,8 @@ func TestFetch_SkipsWindowsWithoutUtilization(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_partial.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -587,7 +592,8 @@ func TestFetch_MalformedResponseBodyErrors(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_malformed.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err == nil {
 		t.Fatalf("Fetch() = %+v, nil; want a decode error", got)
 	}
@@ -613,7 +619,8 @@ func TestFetch_ScopedLimitWithoutResetsAtIsSkipped(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_notice_list.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -629,7 +636,8 @@ func TestFetch_ScopedLimitsOrderedBySectionKey(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_scoped_ordering.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -663,7 +671,8 @@ func TestFetch_ResponseWithNoKnownWindowsErrors(t *testing.T) {
 			srv, _ := serveJSON(t, http.StatusOK, nil, []byte(tc.body))
 			p := newProvider(t, pointAt(srv)...)
 
-			got, err := p.Fetch(testContext(t))
+			fetched, err := p.Fetch(testContext(t))
+			got := fetched.Windows
 			if err == nil {
 				t.Fatalf("Fetch() = %+v, nil; want an error", got)
 			}
@@ -688,7 +697,8 @@ func TestFetch_ParsesLiveShape(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_live_shape.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -715,7 +725,8 @@ func TestFetch_ScopedNamesComeFromScopeAndKind(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_scoped_naming.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}
@@ -747,7 +758,8 @@ func TestFetch_ScopedLimitsSharingAnInstantBothAppear(t *testing.T) {
 	srv, _ := serveFixture(t, "usage_scoped_same_instant.json")
 	p := newProvider(t, pointAt(srv)...)
 
-	got, err := p.Fetch(testContext(t))
+	fetched, err := p.Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() error = %v, want nil", err)
 	}

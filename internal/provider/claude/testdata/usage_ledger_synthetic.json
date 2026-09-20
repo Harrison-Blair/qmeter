@@ -1,0 +1,146 @@
+{
+  "five_hour": {
+    "utilization": 54.0,
+    "resets_at": "2030-01-01T05:00:00Z",
+    "limit_dollars": null,
+    "used_dollars": null,
+    "remaining_dollars": null,
+    "locked_reason": null
+  },
+  "seven_day": {
+    "utilization": 87.0,
+    "resets_at": "2030-01-08T00:00:00Z",
+    "limit_dollars": null,
+    "used_dollars": null,
+    "remaining_dollars": null,
+    "locked_reason": null
+  },
+  "seven_day_oauth_apps": null,
+  "seven_day_opus": null,
+  "seven_day_sonnet": null,
+  "seven_day_cowork": null,
+  "seven_day_omelette": null,
+  "tangelo": null,
+  "iguana_necktie": null,
+  "omelette_promotional": null,
+  "cinder_cove": null,
+  "copper_kite": null,
+  "harbor_lantern": null,
+  "wattle_ember": null,
+  "amber_ladder": null,
+  "juniper_tide": null,
+  "cedar_ember": null,
+  "amber_gauge": null,
+  "nimbus_quill": {
+    "utilization": 0.0,
+    "resets_at": null,
+    "limit_dollars": null,
+    "used_dollars": null,
+    "remaining_dollars": null,
+    "locked_reason": null
+  },
+  "extra_usage": {
+    "is_enabled": false,
+    "monthly_limit": 100,
+    "used_credits": 0.0,
+    "utilization": 0.0,
+    "currency": "USD",
+    "decimal_places": 2,
+    "disabled_reason": "out_of_credits",
+    "user_disabled": false,
+    "spend_limit_reached": false,
+    "credits_ever_enabled": true,
+    "daily": null,
+    "weekly": null
+  },
+  "limits": [
+    {
+      "kind": "session",
+      "group": "session",
+      "percent": 54,
+      "severity": "normal",
+      "resets_at": "2030-01-01T05:00:00Z",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 87,
+      "severity": "warning",
+      "resets_at": "2030-01-08T00:00:00Z",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 88,
+      "severity": "warning",
+      "resets_at": "2030-01-08T00:00:00Z",
+      "scope": {
+        "model": {
+          "id": null,
+          "display_name": "Synthetic Model"
+        },
+        "surface": null
+      },
+      "is_active": true
+    }
+  ],
+  "spend": {
+    "used": {
+      "amount_minor": 0,
+      "currency": "USD",
+      "exponent": 2
+    },
+    "limit": {
+      "amount_minor": 100,
+      "currency": "USD",
+      "exponent": 2
+    },
+    "percent": 0,
+    "severity": "normal",
+    "enabled": false,
+    "disabled_reason": "out_of_credits",
+    "cap": {
+      "money": null,
+      "credits": {
+        "amount_minor": 100,
+        "exponent": 2
+      }
+    },
+    "balance": null,
+    "auto_reload": null,
+    "disclaimer": "Synthetic fixture disclaimer",
+    "can_purchase_credits": false,
+    "can_toggle": false
+  },
+  "member_dashboard_available": true,
+  "seven_day_breakdown": {
+    "as_of": "2030-01-01T00:00:00Z",
+    "window_started_at": "2029-12-25T00:00:00Z",
+    "rows": [
+      {
+        "key": "synthetic-surface-1",
+        "display_name": "Synthetic Surface 1",
+        "percent": 96
+      },
+      {
+        "key": "synthetic-surface-2",
+        "display_name": "Synthetic Surface 2",
+        "percent": 3
+      },
+      {
+        "key": "synthetic-surface-3",
+        "display_name": "Synthetic Surface 3",
+        "percent": 1
+      },
+      {
+        "key": "synthetic-surface-4",
+        "display_name": "Synthetic Surface 4",
+        "percent": 0
+      }
+    ]
+  }
+}

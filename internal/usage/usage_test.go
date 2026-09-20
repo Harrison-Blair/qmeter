@@ -459,7 +459,7 @@ func (p panicker) ID() string { return p.id }
 
 func (p panicker) Detect(ctx context.Context) (bool, string) { return true, "" }
 
-func (p panicker) Fetch(ctx context.Context) ([]provider.Window, error) { panic(p.value) }
+func (p panicker) Fetch(ctx context.Context) (provider.Usage, error) { panic(p.value) }
 
 // ctxRecorder is a detected provider that records the context its Fetch
 // received, announces that Fetch is in flight, and then blocks until that
@@ -481,7 +481,7 @@ func (r *ctxRecorder) ID() string { return r.id }
 
 func (r *ctxRecorder) Detect(ctx context.Context) (bool, string) { return true, "" }
 
-func (r *ctxRecorder) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (r *ctxRecorder) Fetch(ctx context.Context) (provider.Usage, error) {
 	r.mu.Lock()
 	r.ctx = ctx
 	r.mu.Unlock()
@@ -489,9 +489,9 @@ func (r *ctxRecorder) Fetch(ctx context.Context) ([]provider.Window, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return provider.Usage{}, ctx.Err()
 	case <-time.After(10 * time.Second):
-		return nil, errors.New("ctxRecorder safety net fired: context never became done")
+		return provider.Usage{}, errors.New("ctxRecorder safety net fired: context never became done")
 	}
 }
 
@@ -512,8 +512,8 @@ func (d *deadlineRecorder) ID() string { return d.id }
 
 func (d *deadlineRecorder) Detect(ctx context.Context) (bool, string) { return true, "" }
 
-func (d *deadlineRecorder) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (d *deadlineRecorder) Fetch(ctx context.Context) (provider.Usage, error) {
 	deadline, ok := ctx.Deadline()
 	d.record(deadline, ok)
-	return nil, nil
+	return provider.Usage{}, nil
 }

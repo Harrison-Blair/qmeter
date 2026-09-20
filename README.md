@@ -33,6 +33,9 @@ the pace marker stays cyan and the actual needle stays white. The footer ends
 with the time the numbers on screen were fetched, and shows a spinner while
 the next fetch is in flight.
 
+Reported balances appear as short ledger rows below each provider's gauges,
+using the same fetch. Providers with no balances get no ledger rows.
+
 | Key | Does |
 | --- | --- |
 | `j` / `↓`, `k` / `↑` | scroll a line |
@@ -174,6 +177,38 @@ qmeter resets --filter claude --filter codex --json
 
 `--json` preserves the usage envelope and window fields, sorts its windows, and
 adds `resets_in_seconds` (whole seconds until reset, or `null` when unknown).
+
+## Spend
+
+`qmeter spend` shows reported balances in a `PROVIDER NAME LEFT OF BAR` table.
+`LEFT` is the remaining amount, `OF` is the limit, and the 20-cell bar shows the
+remaining fraction when both amounts and a positive limit are known. Unknown
+amounts show `-`; unlimited credit shows `unlimited`. Providers with no balances
+are omitted; fetch failures appear as status rows.
+
+```sh
+qmeter spend
+qmeter spend --filter claude,codex
+qmeter spend --filter claude --filter cursor --json
+```
+
+`--filter` accepts comma-separated or repeated provider names, like `pace` and
+`resets`; undetected providers are omitted. USD amounts use `$` and two decimal
+places, credits use plain numbers, and percentage balances use `%`. Cursor's
+amount units are **unconfirmed** and appear as bare numbers, never dollars.
+Pipes and `NO_COLOR` produce plain output.
+
+`--json` emits exactly `balances`, `errors`, and `undetected`, each a non-null
+array. Balance fields follow this shape; unknown amounts are `null`, while a
+reported zero stays `0`:
+
+```json
+{"balances":[{"provider":"codex","name":"credits","unit":"credits","used":null,"limit":null,"remaining":0,"unlimited":false}],"errors":[],"undetected":[]}
+```
+
+Errors use `{ "provider": "...", "message": "..." }`; undetected entries use
+`{ "provider": "...", "reason": "..." }`. The existing `usage --json` envelope
+is unchanged.
 
 ## Install
 

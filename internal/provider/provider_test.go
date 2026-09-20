@@ -364,6 +364,6 @@ func (compileCheckProvider) ID() string { return "compile-check" }
 func (compileCheckProvider) Detect(ctx context.Context) (bool, string) {
 	return false, ""
 }
-func (compileCheckProvider) Fetch(ctx context.Context) ([]provider.Window, error) {
-	return nil, nil
+func (compileCheckProvider) Fetch(ctx context.Context) (provider.Usage, error) {
+	return provider.Usage{}, nil
 }

@@ -35,6 +35,9 @@ type Result struct {
 	// completion order), and within a provider in its declared order.
 	Windows []provider.Window
 
+	// Balances follows the same provider and declared order as Windows.
+	Balances []provider.Balance
+
 	// Errors holds one entry per detected provider whose Fetch failed or
 	// timed out, in the order the providers were passed to Run.
 	Errors []ProviderError
@@ -106,8 +109,8 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 	// the goroutines interleave, and one slow or failing provider never
 	// holds up another.
 	type outcome struct {
-		windows []provider.Window
-		err     error
+		usage provider.Usage
+		err   error
 	}
 	outcomes := make([]outcome, len(detected))
 
@@ -125,8 +128,8 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 			}()
 			fetchCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
-			windows, err := p.Fetch(fetchCtx)
-			outcomes[slot] = outcome{windows: windows, err: err}
+			fetched, err := p.Fetch(fetchCtx)
+			outcomes[slot] = outcome{usage: fetched, err: err}
 		}(i, p)
 	}
 	wg.Wait()
@@ -136,13 +139,19 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 			res.Errors = append(res.Errors, ProviderError{Provider: p.ID(), Message: message(ctx, err, timeout)})
 			continue
 		}
-		for _, w := range outcomes[i].windows {
+		for _, w := range outcomes[i].usage.Windows {
 			// A provider may leave Provider empty; the orchestrator knows
 			// which provider it asked, so it fills the name in.
 			if w.Provider == "" {
 				w.Provider = p.ID()
 			}
 			res.Windows = append(res.Windows, w)
+		}
+		for _, b := range outcomes[i].usage.Balances {
+			if b.Provider == "" {
+				b.Provider = p.ID()
+			}
+			res.Balances = append(res.Balances, b)
 		}
 	}
 	return res

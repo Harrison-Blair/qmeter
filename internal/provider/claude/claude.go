@@ -1,7 +1,7 @@
 // Package claude implements qmeter's read-only Claude usage provider: it
 // resolves a credential (the QMETER_CLAUDE_TOKEN override, else Claude Code's
 // own credential store), queries the OAuth usage endpoint, and normalizes the
-// answer into provider.Window values.
+// answer into provider.Usage.
 //
 // The package never writes to Claude's credential store and never refreshes a
 // token.
@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -164,13 +165,13 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 // user asked for usage and there is none to show.
 //
 // An expired store credential is reported without any network I/O.
-func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	// Credential errors pass through unwrapped: credstore has already worded
 	// them for display ("not logged in, run claude to log in", or "credential
 	// store: ..."), and a second prefix would double up in the failure line.
 	cred, _, err := p.resolve(ctx)
 	if err != nil {
-		return nil, err
+		return provider.Usage{}, err
 	}
 
 	// Decoding the top level as raw messages keeps the unknown-key handling
@@ -188,16 +189,62 @@ func (p *Provider) Fetch(ctx context.Context) ([]provider.Window, error) {
 		Client: p.client,
 	}
 	if err := httpx.Get(ctx, opts, &body); err != nil {
-		return nil, fmt.Errorf("usage request: %w", err)
+		return provider.Usage{}, fmt.Errorf("usage request: %w", err)
 	}
 	windows := windowsFrom(body, cred.Plan)
 	if len(windows) == 0 {
 		// An empty object, a null body, or a response whose shape has moved
 		// on entirely: reporting nothing would look like a provider with no
 		// limits rather than one qmeter could not read.
-		return nil, errNoKnownWindows
+		return provider.Usage{}, errNoKnownWindows
 	}
-	return windows, nil
+	return provider.Usage{Windows: windows, Balances: balancesFrom(body)}, nil
+}
+
+// balancesFrom prefers explicitly denominated spend money over the legacy
+// extra_usage percentage. The legacy credit counts do not establish dollars.
+func balancesFrom(body map[string]json.RawMessage) []provider.Balance {
+	var spend struct {
+		Used  json.RawMessage `json:"used"`
+		Limit json.RawMessage `json:"limit"`
+	}
+	_ = json.Unmarshal(body["spend"], &spend)
+	used, limit := dollarsFrom(spend.Used), dollarsFrom(spend.Limit)
+	if used != nil || limit != nil {
+		b := provider.Balance{Provider: providerID, Name: "extra usage", Unit: "usd", Used: used, Limit: limit}
+		if used != nil && limit != nil {
+			remaining := *limit - *used
+			b.Remaining = &remaining
+		}
+		return []provider.Balance{b}
+	}
+
+	var extra struct {
+		Utilization *float64 `json:"utilization"`
+	}
+	if json.Unmarshal(body["extra_usage"], &extra) != nil || extra.Utilization == nil {
+		return nil
+	}
+	limitPercent, remaining := 100.0, 100-*extra.Utilization
+	return []provider.Balance{{
+		Provider: providerID, Name: "extra usage", Unit: "percent",
+		Used: extra.Utilization, Limit: &limitPercent, Remaining: &remaining,
+	}}
+}
+
+// dollarsFrom requires the amount, currency and precision to be explicit;
+// missing money fields must not become known zeroes.
+func dollarsFrom(raw json.RawMessage) *float64 {
+	var money struct {
+		AmountMinor *float64 `json:"amount_minor"`
+		Currency    string   `json:"currency"`
+		Exponent    *int     `json:"exponent"`
+	}
+	if json.Unmarshal(raw, &money) != nil || money.AmountMinor == nil || money.Exponent == nil || !strings.EqualFold(money.Currency, "USD") {
+		return nil
+	}
+	amount := *money.AmountMinor / math.Pow10(*money.Exponent)
+	return &amount
 }
 
 // errNoKnownWindows is the failure for a 200 that carried nothing qmeter

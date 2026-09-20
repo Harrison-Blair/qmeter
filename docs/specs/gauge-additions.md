@@ -1,7 +1,8 @@
 # Spec: run-out forecast, reset timeline, money ledger
 
-Status: 1–2 implemented and reviewed on `dev`; 3 not started, live captures reviewed;
-Cursor units remain unresolved. Source: the qmeter design bench shortlist.
+Status: 1–2 implemented and reviewed on `dev`; 3 implemented and independently
+reviewed on `dev`; Cursor units remain unresolved. Source: the qmeter design bench
+shortlist.
 Develop on `dev` or a branch off it; never commit to `main`.
 
 All three read account-wide vendor data, so they behave the same on a server and on a
@@ -272,10 +273,10 @@ capture has `extra_usage` and surface rows.
 
 | Provider | Fields | Today |
 |---|---|---|
-| cursor | `individualUsage.plan {enabled, used, limit, remaining, breakdown {included, bonus, total}, autoPercentUsed, apiPercentUsed, totalPercentUsed}` and `individualUsage.onDemand {enabled, used, limit, remaining}`; this `membershipType: "free"` account has plan `used`/`limit`/`remaining` all `0`, on-demand disabled with `used: 0` and `limit`/`remaining: null`; units remain unconfirmed | parsed in part, not surfaced |
-| codex | `credits {has_credits, unlimited, overage_limit_reached, balance, approx_local_messages, approx_cloud_messages}` — balance is the string `"0"`, both message arrays are `[0, 0]`; `spend_control {reached, individual_limit}` — `false` and `null` here, no `enabled` field; `rate_limit_reset_credits {available_count, applicable_available_count}` — `2` and `0` here | ignored by design in `usageResponse` |
-| claude | `extra_usage {is_enabled, monthly_limit, used_credits, utilization, currency, decimal_places, disabled_reason, user_disabled, spend_limit_reached, credits_ever_enabled, daily, weekly}` and `spend {used, limit, percent, severity, enabled, disabled_reason, cap, balance, auto_reload, disclaimer, can_purchase_credits, can_toggle}`; `extra_section.utilization` does not exist in this capture | not decoded |
-| opencode-go | Only `usage.{rolling,weekly,monthly}.{status,percent,resetsAt}`; no `spend`, `limit` or `caps` keys and no money in the live response | remains out of scope: money fields must be seen live |
+| cursor | `individualUsage.plan {enabled, used, limit, remaining, breakdown {included, bonus, total}, autoPercentUsed, apiPercentUsed, totalPercentUsed}` and `individualUsage.onDemand {enabled, used, limit, remaining}`; this `membershipType: "free"` account has plan `used`/`limit`/`remaining` all `0`, on-demand disabled with `used: 0` and `limit`/`remaining: null`; units remain unconfirmed | normalized `unconfirmed` balances exposed when enabled and reported; disabled live `onDemand` is omitted |
+| codex | `credits {has_credits, unlimited, overage_limit_reached, balance, approx_local_messages, approx_cloud_messages}` — balance is the string `"0"`, both message arrays are `[0, 0]`; `spend_control {reached, individual_limit}` — `false` and `null` here, no `enabled` field; `rate_limit_reset_credits {available_count, applicable_available_count}` — `2` and `0` here | normalized credits balance exposed; string/number balance and `unlimited` supported |
+| claude | `extra_usage {is_enabled, monthly_limit, used_credits, utilization, currency, decimal_places, disabled_reason, user_disabled, spend_limit_reached, credits_ever_enabled, daily, weekly}` and `spend {used, limit, percent, severity, enabled, disabled_reason, cap, balance, auto_reload, disclaimer, can_purchase_credits, can_toggle}`; `extra_section.utilization` does not exist in this capture | normalized `usd` `spend` balance exposed; percent `extra_usage.utilization` fallback when usable money values are absent |
+| opencode-go | Only `usage.{rolling,weekly,monthly}.{status,percent,resetsAt}`; no `spend`, `limit` or `caps` keys and no money in the live response | no money balance exposed: live response has no money fields |
 
 Claude's `extra_usage` reports `currency: "USD"` and `decimal_places: 2`, with
 `monthly_limit: 100`, `used_credits: 0` and `utilization: 0`; it is disabled with
@@ -361,7 +362,7 @@ covers both.
 
 ### `qmeter spend`
 
-New `cmd/spend/` and `internal/spend/`.
+Implemented in `cmd/spend/` and `internal/spend/`.
 
 - Text: one table, `PROVIDER NAME LEFT OF BAR`. Dollars as `$5.75`, credits as a plain
   number, percent as `%`, and `unconfirmed` amounts as bare numbers. The bar is 20
@@ -369,6 +370,8 @@ New `cmd/spend/` and `internal/spend/`.
   limit. `unlimited` replaces the amount when `Unlimited` is set. Providers that
   report nothing are omitted, not shown empty.
 - JSON: `{ "balances": [...], "errors": [...], "undetected": [...] }`.
+- `--filter`: the same repeated/comma-separated provider selection as `pace` and
+  `resets`, applied before fetching.
 
 ### Dashboard
 

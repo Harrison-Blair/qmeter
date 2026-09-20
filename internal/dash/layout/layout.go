@@ -264,7 +264,7 @@ func count(n int, one, many string) string {
 }
 
 // presentProviders is the sections to draw, in registry order: a provider
-// with no windows, no error and no not-detected reason is not drawn at
+// with no windows, no balances, no error and no not-detected reason is not drawn at
 // all. A provider the registry has never heard of is drawn after the ones
 // it has, so a new provider shows up even before it is listed here.
 func presentProviders(r usage.Result, th theme.Theme) []provInfo {
@@ -276,6 +276,9 @@ func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 	}
 	for _, w := range r.Windows {
 		note(w.Provider)
+	}
+	for _, b := range r.Balances {
+		note(b.Provider)
 	}
 	for _, e := range r.Errors {
 		note(e.Provider)
@@ -315,6 +318,9 @@ func firstSeenOrder(r usage.Result) []string {
 	for _, w := range r.Windows {
 		add(w.Provider)
 	}
+	for _, b := range r.Balances {
+		add(b.Provider)
+	}
 	for _, e := range r.Errors {
 		add(e.Provider)
 	}
@@ -349,7 +355,7 @@ func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, 
 	return out
 }
 
-// section is one provider's block: its rule, its windows, and whatever the
+// section is one provider's block: its rule, windows, balances, and whatever the
 // run has to say about it.
 func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) []row {
 	var windows []provider.Window
@@ -366,6 +372,11 @@ func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int
 	out := []row{sectionHead(p, plan, colw)}
 	for _, w := range windows {
 		out = append(out, windowBlock(w, p, colw, now, meterWidth)...)
+	}
+	for _, b := range r.Balances {
+		if b.Provider == p.id {
+			out = append(out, ledgerRow(b, colw, meterWidth))
+		}
 	}
 	for _, e := range r.Errors {
 		if e.Provider == p.id {

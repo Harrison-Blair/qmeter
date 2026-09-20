@@ -15,7 +15,7 @@ func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
 		t.Error("root has no persistent --json flag")
 	}
 
-	for _, name := range []string{"usage", "pace", "version", "update"} {
+	for _, name := range []string{"usage", "pace", "spend", "version", "update"} {
 		found := false
 		for _, sub := range root.Commands() {
 			if sub.Name() == name {

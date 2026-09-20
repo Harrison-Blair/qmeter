@@ -69,14 +69,14 @@ func newBlocker() *blocker {
 func (b *blocker) ID() string                            { return "claude" }
 func (b *blocker) Detect(context.Context) (bool, string) { return true, "" }
 
-func (b *blocker) Fetch(ctx context.Context) ([]provider.Window, error) {
+func (b *blocker) Fetch(ctx context.Context) (provider.Usage, error) {
 	b.once.Do(func() { close(b.started) })
 	select {
 	case <-ctx.Done():
 		close(b.observed)
-		return nil, ctx.Err()
+		return provider.Usage{}, ctx.Err()
 	case <-time.After(30 * time.Second):
-		return nil, errors.New("the fetch was left to run to completion")
+		return provider.Usage{}, errors.New("the fetch was left to run to completion")
 	}
 }
 

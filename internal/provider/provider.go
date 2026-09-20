@@ -1,4 +1,4 @@
-// Package provider defines the normalized usage-window data model, the
+// Package provider defines the normalized usage data model, the
 // Provider interface every vendor implementation satisfies, and the typed
 // errors credential lookup and HTTP handling return.
 //
@@ -13,6 +13,40 @@ import (
 	"fmt"
 	"time"
 )
+
+// Usage is the windows and balances from one provider response.
+type Usage struct {
+	Windows  []Window
+	Balances []Balance
+}
+
+// Balance is a reported money, credit, or percentage balance. Nil amounts
+// are unknown; a pointer to zero is a known zero.
+type Balance struct {
+	Provider  string
+	Name      string
+	Unit      string // "usd", "credits", "percent", or "unconfirmed"
+	Used      *float64
+	Limit     *float64
+	Remaining *float64
+	Unlimited bool
+}
+
+// MarshalJSON emits snake_case keys and explicit nulls for unknown amounts.
+func (b Balance) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Provider  string   `json:"provider"`
+		Name      string   `json:"name"`
+		Unit      string   `json:"unit"`
+		Used      *float64 `json:"used"`
+		Limit     *float64 `json:"limit"`
+		Remaining *float64 `json:"remaining"`
+		Unlimited bool     `json:"unlimited"`
+	}{
+		Provider: b.Provider, Name: b.Name, Unit: b.Unit,
+		Used: b.Used, Limit: b.Limit, Remaining: b.Remaining, Unlimited: b.Unlimited,
+	})
+}
 
 // Window is one normalized usage window for a provider (e.g. a 5-hour
 // rolling window, a weekly window, a monthly window).
@@ -72,8 +106,9 @@ type Provider interface {
 	// are: claude, codex, cursor-agent, opencode.
 	Detect(ctx context.Context) (bool, string)
 
-	// Fetch retrieves and normalizes the provider's current usage windows.
-	Fetch(ctx context.Context) ([]Window, error)
+	// Fetch retrieves and normalizes the provider's current windows and
+	// balances from the same response. On error it returns zero Usage.
+	Fetch(ctx context.Context) (Usage, error)
 }
 
 // ErrNotLoggedIn indicates no usable credential was found — no env override

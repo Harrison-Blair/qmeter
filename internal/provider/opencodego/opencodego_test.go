@@ -292,7 +292,8 @@ func TestFetch_OKStatusUsesPercent(t *testing.T) {
 	clearEnv(t)
 	srv, rec := fixtureServer(t, "usage_ok.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -362,7 +363,8 @@ func TestFetch_RollingAndWeeklyPeriodConstants(t *testing.T) {
 	clearEnv(t)
 	srv, _ := fixtureServer(t, "usage_ok.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -383,7 +385,8 @@ func TestFetch_MonthlyPeriodDerivedFromResetsAt(t *testing.T) {
 	// so the calendar month ending there is 31 days long.
 	srv, _ := fixtureServer(t, "usage_month_end.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -471,7 +474,8 @@ func TestFetch_RateLimitedStatusForcesZeroRemaining(t *testing.T) {
 	// the status wins.
 	srv, _ := fixtureServer(t, "usage_rate_limited.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -500,7 +504,8 @@ func TestFetch_MissingWindowIsSkipped(t *testing.T) {
 	clearEnv(t)
 	srv, _ := fixtureServer(t, "usage_weekly_only.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -518,7 +523,8 @@ func TestFetch_IgnoresUnknownFieldsAndUnknownWindows(t *testing.T) {
 	clearEnv(t)
 	srv, _ := fixtureServer(t, "usage_unknown_fields.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
@@ -546,7 +552,8 @@ func TestFetch_OutOfRangePercentErrors(t *testing.T) {
 			clearEnv(t)
 			srv, _ := fixtureServer(t, tt.fixture)
 
-			got, err := testProvider(t, srv).Fetch(testContext(t))
+			fetched, err := testProvider(t, srv).Fetch(testContext(t))
+			got := fetched.Windows
 			if err == nil {
 				t.Fatalf("Fetch() err = nil, want an error; got windows %+v", got)
 			}
@@ -564,7 +571,8 @@ func TestFetch_DecimalPercentIsPreserved(t *testing.T) {
 	clearEnv(t)
 	srv, _ := fixtureServer(t, "usage_percent_decimal.json")
 
-	got, err := testProvider(t, srv).Fetch(testContext(t))
+	fetched, err := testProvider(t, srv).Fetch(testContext(t))
+	got := fetched.Windows
 	if err != nil {
 		t.Fatalf("Fetch() err = %v", err)
 	}
