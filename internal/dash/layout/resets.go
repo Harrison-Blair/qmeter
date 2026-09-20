@@ -19,7 +19,7 @@ func RenderTimeline(result usage.Result, width int, o Options) []string {
 		now = time.Now()
 	}
 	lines := finish(header(result, width, o.Banner, o.Theme), width)
-	lines = append(lines, resets.Rows(result, now, width, lipgloss.DefaultRenderer())...)
+	lines = append(lines, resets.Rows(result, now, width, lipgloss.DefaultRenderer(), o.Theme)...)
 	for i, line := range lines {
 		line = ansi.Truncate(line, width, "")
 		lines[i] = line + blanks(width-lipgloss.Width(line))

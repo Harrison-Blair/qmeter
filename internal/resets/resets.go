@@ -38,7 +38,7 @@ const rateLimitSuffix = " ↑RL"
 // Row draws one window on a fixed linear axis: one cell per four hours.
 // It requires width >= MinWidth; callers are responsible for the table fallback below that.
 // Extra width belongs to the name.
-func Row(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) string {
+func Row(w provider.Window, now time.Time, width int, r *lipgloss.Renderer, th display.Theme) string {
 	nameWidth := width - 60
 	name := w.Name
 	if w.RateLimited {
@@ -61,7 +61,7 @@ func Row(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) stri
 	}
 	countdown = runewidth.Truncate(countdown, 6, "…")
 	countdown += strings.Repeat(" ", 6-runewidth.StringWidth(countdown))
-	return r.NewStyle().Foreground(display.Default().Accent(w.Provider)).Render(display.ProviderGlyph(w.Provider)) + " " + name + " " + health.Render(fmt.Sprintf("%5.1f%%", w.RemainingPercent)) + " " + axis + " " + display.ResetCell(r, countdown, w.RateLimited).Style.Render(countdown)
+	return r.NewStyle().Foreground(th.Accent(w.Provider)).Render(display.ProviderGlyph(w.Provider)) + " " + name + " " + health.Render(fmt.Sprintf("%5.1f%%", w.RemainingPercent)) + " " + axis + " " + display.ResetCell(r, countdown, w.RateLimited).Style.Render(countdown)
 }
 
 // RenderText uses the destination's terminal width, or a plain table for pipes.
@@ -79,12 +79,12 @@ func renderText(w io.Writer, result usage.Result, now time.Time, width int, tty 
 	if !tty {
 		width = 0
 	}
-	_, err := fmt.Fprintln(w, strings.Join(Rows(result, now, width, r), "\n"))
+	_, err := fmt.Fprintln(w, strings.Join(Rows(result, now, width, r, display.Default()), "\n"))
 	return err
 }
 
 // Rows builds the same sorted timeline or narrow table for CLI and dashboard.
-func Rows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer) []string {
+func Rows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer, th display.Theme) []string {
 	if len(result.Windows) == 0 && len(result.Errors) == 0 && len(result.Undetected) == 0 {
 		return []string{"no providers detected"}
 	}
@@ -97,9 +97,9 @@ func Rows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer) [
 	}
 	for _, w := range Sort(result.Windows) {
 		if width < MinWidth {
-			table = append(table, []display.Cell{display.ProviderCell(r, w.Provider), {Text: w.Name}, display.RemainingCell(r, w.RemainingPercent, w.RateLimited), display.ResetCell(r, usage.ResetsCell(w, now), w.RateLimited)})
+			table = append(table, []display.Cell{{Text: w.Provider, Style: r.NewStyle().Foreground(th.Accent(w.Provider))}, {Text: w.Name}, display.RemainingCell(r, w.RemainingPercent, w.RateLimited), display.ResetCell(r, usage.ResetsCell(w, now), w.RateLimited)})
 		} else {
-			out = append(out, Row(w, now, width, r))
+			out = append(out, Row(w, now, width, r, th))
 		}
 	}
 	table = append(table, usage.MessageRows(r, result)...)

@@ -19,6 +19,26 @@ import (
 
 var now = time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 
+func TestTextUsesDefaultProviderTheme(t *testing.T) {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	result := usage.Result{Windows: []provider.Window{{Provider: "codex", Name: "5h", RemainingPercent: 80, ResetsAt: now.Add(time.Hour)}}}
+	for _, width := range []int{69, 70} {
+		var out bytes.Buffer
+		if err := renderText(&out, result, now, width, true, r); err != nil {
+			t.Fatal(err)
+		}
+		identity := "codex"
+		if width >= MinWidth {
+			identity = "●"
+		}
+		want := r.NewStyle().Foreground(display.Default().Accent("codex")).Render(identity)
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("width %d: missing default identity %q in %q", width, want, out.String())
+		}
+	}
+}
+
 func TestSort(t *testing.T) {
 	windows := []provider.Window{
 		{Name: "unknown first"}, {Name: "late", ResetsAt: now.Add(time.Hour)},
@@ -59,7 +79,7 @@ func TestRow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, width := range []int{70, 80, 120} {
 				w := provider.Window{Provider: "claude", Name: strings.Repeat("界", 60), RemainingPercent: 12, ResetsAt: tc.reset, RateLimited: tc.limited}
-				got := Row(w, now, width, r)
+				got := Row(w, now, width, r, display.Default())
 				if runewidth.StringWidth(got) != width {
 					t.Fatalf("row width = %d, want %d: %q", runewidth.StringWidth(got), width, got)
 				}
@@ -92,7 +112,7 @@ func TestRow(t *testing.T) {
 		})
 	}
 	r.SetColorProfile(termenv.ANSI)
-	got := Row(provider.Window{Provider: "codex", Name: "5h", RemainingPercent: 80, ResetsAt: now.Add(time.Hour), RateLimited: true}, now, 80, r)
+	got := Row(provider.Window{Provider: "codex", Name: "5h", RemainingPercent: 80, ResetsAt: now.Add(time.Hour), RateLimited: true}, now, 80, r, display.Default())
 	if !strings.Contains(got, "\x1b[31m●\x1b[0m") || !strings.Contains(got, "\x1b[31m 80.0%\x1b[0m") {
 		t.Fatalf("marker and percent lack health band: %q", got)
 	}
@@ -101,7 +121,7 @@ func TestRowLimitedNameAtMinWidth(t *testing.T) {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.Ascii)
 	w := provider.Window{Provider: "codex", Name: "weekly", RemainingPercent: 12, ResetsAt: now.Add(4 * time.Hour), RateLimited: true}
-	got := Row(w, now, MinWidth, r)
+	got := Row(w, now, MinWidth, r, display.Default())
 	t.Logf("%d-cell row: %q", runewidth.StringWidth(got), got)
 	if runewidth.StringWidth(got) != MinWidth {
 		t.Fatalf("row width = %d, want %d", runewidth.StringWidth(got), MinWidth)
