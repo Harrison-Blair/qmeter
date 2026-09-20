@@ -23,6 +23,7 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/dash/layout"
 	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
+	"github.com/Harrison-Blair/qmeter/internal/resets"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 )
 
@@ -65,9 +66,9 @@ var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Ti
 // a spinner where the key would be — and before the first result there is
 // nothing to scroll either, so quitting is the only key worth naming.
 const (
-	keyHints      = "↑↓ scroll · r refresh · q quit"
-	busyKeyHints  = " refreshing · q quit" // after the spinner
-	firstKeyHints = " fetching · q quit"   // after the spinner
+	keyHints      = "↑↓ scroll · r refresh · q quit · t timeline"
+	busyKeyHints  = " refreshing · q quit · t timeline" // after the spinner
+	firstKeyHints = " fetching · q quit · t timeline"   // after the spinner
 	scrollHint    = "↑↓ scroll · "
 	fetchingLabel = "fetching…"
 
@@ -92,12 +93,15 @@ type Options struct {
 	// header is the one-line summary.
 	Banner bool
 
+	// Vertical uses one full-width provider column and stretches gauges to fit.
+	Vertical bool
+
 	// Theme is the provider identity palette. The zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default.
+	// dashboard default. Vertical overrides this preference.
 	MeterWidth int
 
 	// RefreshInterval is the delay after each completed fetch before the
@@ -120,6 +124,8 @@ type Options struct {
 type Model struct {
 	providers         []provider.Provider
 	banner            bool
+	vertical          bool
+	timeline          bool
 	theme             theme.Theme
 	meterWidth        int
 	refreshInterval   time.Duration
@@ -160,6 +166,7 @@ func New(o Options) Model {
 	m := Model{
 		providers:       o.Providers,
 		banner:          o.Banner,
+		vertical:        o.Vertical,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
 		refreshInterval: o.RefreshInterval,
@@ -298,6 +305,9 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.offset = 0
 	case "G", "end":
 		m.offset = m.clamp(len(body))
+	case "t":
+		m.timeline = !m.timeline
+		m.offset = 0
 	case "r":
 		// A second refresh while one is in flight would fetch every
 		// provider twice and race its own result onto the screen.
@@ -338,8 +348,13 @@ func (m Model) View() string {
 // frame splits the page into the header that stays put and the body that
 // scrolls, and says how many body rows are on screen.
 func (m Model) frame() (header, body []string, fits int) {
-	page := layout.Render(m.res, m.width, layout.Options{
+	draw := layout.Render
+	if m.timeline {
+		draw = layout.RenderTimeline
+	}
+	page := draw(m.res, m.width, layout.Options{
 		Banner:     m.banner,
+		Vertical:   m.vertical,
 		Now:        m.now(),
 		Theme:      m.theme,
 		MeterWidth: m.meterWidth,
@@ -353,7 +368,7 @@ func (m Model) frame() (header, body []string, fits int) {
 	if m.banner && m.width >= banner.Width {
 		head = banner.Height
 	}
-	if m.width >= layout.MinWidth && len(page) > head {
+	if (m.timeline || m.width >= layout.MinWidth) && len(page) > head {
 		header, body = page[:head], page[head:]
 	} else {
 		body = page
@@ -419,13 +434,20 @@ func (m Model) footer(total, fits int) string {
 // of the key that would do nothing.
 func (m Model) hints() []seg {
 	frame := seg{string([]rune(spinFrames)[m.spin]), spinStyle}
+	keys, busy, first, scroll := keyHints, busyKeyHints, firstKeyHints, scrollHint
+	if m.width < resets.MinWidth {
+		keys = "↑↓ scroll·r refresh·q quit·t ↔"
+		busy = " refreshing·q quit·t ↔"
+		first = " fetching·q quit·t ↔"
+		scroll = "↑↓ scroll·"
+	}
 	switch {
 	case m.loading && !m.haveRes:
-		return []seg{frame, {firstKeyHints, footerStyle}}
+		return []seg{frame, {first, footerStyle}}
 	case m.loading:
-		return []seg{{scrollHint, footerStyle}, frame, {busyKeyHints, footerStyle}}
+		return []seg{{scroll, footerStyle}, frame, {busy, footerStyle}}
 	}
-	return []seg{{keyHints, footerStyle}}
+	return []seg{{keys, footerStyle}}
 }
 
 // seg is a run of footer text in one style; the footer is measured on the

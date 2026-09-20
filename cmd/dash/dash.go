@@ -33,12 +33,13 @@ var (
 // the --filter help text and the unknown-provider error.
 const validProviders = "claude, codex, opencode-go, cursor"
 
-// Attach gives root its own behaviour: the dashboard, its two flags, and
+// Attach gives root its own behaviour: the dashboard, its flags, and
 // the refusal of any argument that is not a subcommand.
 func Attach(root *cobra.Command) {
 	root.Args = cobra.NoArgs
 	root.Flags().StringSlice("filter", nil, "show only these providers ("+validProviders+")")
 	root.Flags().Bool("no-banner", false, "hide the qmeter wordmark")
+	root.Flags().Bool("vertical", false, "stack providers vertically with full-width meters")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		names, err := cmd.Flags().GetStringSlice("filter")
@@ -46,6 +47,10 @@ func Attach(root *cobra.Command) {
 			return err
 		}
 		noBanner, err := cmd.Flags().GetBool("no-banner")
+		if err != nil {
+			return err
+		}
+		vertical, err := cmd.Flags().GetBool("vertical")
 		if err != nil {
 			return err
 		}
@@ -97,6 +102,7 @@ func Attach(root *cobra.Command) {
 		if err := run(ctx, idash.RunOptions{
 			Providers:       providers,
 			Banner:          !noBanner,
+			Vertical:        vertical,
 			Theme:           settings.Theme,
 			MeterWidth:      settings.MeterWidth,
 			RefreshInterval: settings.RefreshInterval,

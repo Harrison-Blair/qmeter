@@ -21,7 +21,8 @@
 //
 // Column arithmetic is fixed at every width: percentage 6, a space, the
 // gauge, a space, countdown 6. A gauge grows toward the configured preference
-// and is centred with those fields as one block. Below a 36-cell terminal (a
+// and is centred with those fields as one block. Vertical mode uses one full-width
+// column and stretches the gauge to fill it. Below a 36-cell terminal (a
 // 20-cell track) the layout says so and draws nothing.
 package layout
 
@@ -29,6 +30,7 @@ import (
 	"fmt"
 	"github.com/Harrison-Blair/qmeter/internal/display"
 	ipace "github.com/Harrison-Blair/qmeter/internal/pace"
+	"math"
 	"strings"
 	"time"
 
@@ -67,6 +69,9 @@ type Options struct {
 	// is drawn regardless.
 	Banner bool
 
+	// Vertical uses one full-width provider column and stretches gauges to fit.
+	Vertical bool
+
 	// Now is the instant countdowns are measured from. The zero value
 	// means time.Now(); tests pass a fixed instant.
 	Now time.Time
@@ -77,7 +82,7 @@ type Options struct {
 
 	// MeterWidth is the preferred complete gauge width, caps included. Zero
 	// uses DefaultMeterWidth. It may shrink to gauge.MinWidth when the
-	// terminal cannot fit the preference.
+	// terminal cannot fit the preference. Vertical overrides this preference.
 	MeterWidth int
 }
 
@@ -87,17 +92,6 @@ type provInfo struct {
 	id    string
 	icon  string
 	color lipgloss.TerminalColor
-}
-
-// order is the drawing order of the sections, and must stay in step with
-// usage.Registry(): claude, codex, opencode-go, cursor. Sections are laid
-// out row-major, so at two columns the second row is opencode-go on the
-// left and cursor on the right.
-var order = []provInfo{
-	{id: "claude", icon: "◆"},
-	{id: "codex", icon: "●"},
-	{id: "opencode-go", icon: "○"},
-	{id: "cursor", icon: "▲"},
 }
 
 // The palette outside the gauge. Provider-coloured styles are built per
@@ -144,6 +138,10 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	cols, colw, gutter := columns(width, len(present), target)
+	if o.Vertical {
+		cols, colw, gutter = 1, width, 0
+		target = width - (pctWidth + 1 + 1 + cdWidth)
+	}
 	for i := 0; i < len(present); i += cols {
 		if i > 0 && width >= sectionGapMin {
 			rows = append(rows, row{})
@@ -194,6 +192,7 @@ func header(r usage.Result, width int, want bool, th theme.Theme) []row {
 // bannerRow colours one row of the wordmark in four fixed provider bands.
 // Runs of one colour are styled together, and blanks are left unstyled.
 func bannerRow(art string, th theme.Theme) row {
+	order := display.ProviderOrder()
 	out := row{}
 	runes := []rune(art)
 	for i := 0; i < len(runes); {
@@ -205,7 +204,7 @@ func bannerRow(art string, th theme.Theme) row {
 		if runes[i] == ' ' {
 			out = out.put(plain, text)
 		} else {
-			out = out.put(lipgloss.NewStyle().Foreground(th.Accent(order[bannerBand(i)].id)), text)
+			out = out.put(lipgloss.NewStyle().Foreground(th.Accent(order[bannerBand(i)])), text)
 		}
 		i = j
 	}
@@ -213,6 +212,7 @@ func bannerRow(art string, th theme.Theme) row {
 }
 
 func bannerBand(col int) int {
+	order := display.ProviderOrder()
 	i := col * len(order) / banner.Width
 	if i >= len(order) {
 		i = len(order) - 1
@@ -286,7 +286,8 @@ func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 
 	out := make([]provInfo, 0, len(seen))
 	known := map[string]bool{}
-	for _, p := range order {
+	for _, id := range display.ProviderOrder() {
+		p := provInfo{id: id, icon: display.ProviderGlyph(id)}
 		known[p.id] = true
 		if seen[p.id] {
 			p.color = th.Accent(p.id)
@@ -295,7 +296,7 @@ func presentProviders(r usage.Result, th theme.Theme) []provInfo {
 	}
 	for _, id := range firstSeenOrder(r) {
 		if !known[id] {
-			out = append(out, provInfo{id: id, icon: "•", color: th.Accent(id)})
+			out = append(out, provInfo{id: id, icon: display.ProviderGlyph(id), color: th.Accent(id)})
 		}
 	}
 	return out
@@ -407,7 +408,24 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 	gw := gaugeWidth(colw, meterWidth)
 	blockw := gw + pctWidth + 1 + 1 + cdWidth
 	left := (colw - blockw) / 2
-	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now))
+	projection := ipace.Forecast(w, now)
+	forecast := float64(gauge.NoForecast)
+	note := ""
+	noteStyle := dimStyle
+	switch projection.State {
+	case "survives":
+		forecast = *projection.RemainingAtReset
+		note = fmt.Sprintf("lands at %.0f%%", math.Round(forecast))
+	case "dry":
+		forecast = gauge.RunsDry
+		note = "dry in " + formatResets(projection.ExhaustionAt.Sub(now))
+		noteStyle = plain.Foreground(display.RateLimited)
+	case "empty":
+		forecast = gauge.RunsDry
+		note = "empty"
+		noteStyle = plain.Foreground(display.RateLimited)
+	}
+	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now), forecast)
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
 		// column, which is exactly a 22-cell gauge. Rather than panic on
@@ -424,7 +442,11 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 	badgeStyle := lipgloss.NewStyle().Foreground(display.PaceColor(status)).Bold(true)
 	nameWidth := blockw - 2 - 1 - runewidth.StringWidth(badge)
 	name := row{}.put(arrow, "▸ ").put(nameStyle, truncMid(w.Name, nameWidth)).
-		put(plain, " ").put(badgeStyle, badge).pad(blockw)
+		put(plain, " ").put(badgeStyle, badge)
+	if note != "" && name.cells+2+runewidth.StringWidth(note) <= blockw {
+		name = name.put(plain, "  ").put(noteStyle, note)
+	}
+	name = name.pad(blockw)
 
 	bezel := row{}.pad(gaugeIndent).raw(g.Bezel, gw).pad(blockw - badgeWidth)
 	if w.RateLimited {

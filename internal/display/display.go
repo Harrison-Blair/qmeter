@@ -15,6 +15,7 @@ import (
 
 const (
 	Countdown   lipgloss.Color = "6"
+	Forecast    lipgloss.Color = "13"
 	Error       lipgloss.Color = "9"
 	Neutral     lipgloss.Color = "8"
 	RateLimited lipgloss.Color = "1"

@@ -56,14 +56,22 @@ func renderTextStyled(w io.Writer, r usage.Result, now time.Time, renderer *lipg
 		_, err := fmt.Fprintln(w, "no providers detected")
 		return err
 	}
-	rows := [][]display.Cell{display.Header(renderer, "PROVIDER", "WINDOW", "PACE", "REMAINING", "EXPECTED", "RESETS")}
+	rows := [][]display.Cell{display.Header(renderer, "PROVIDER", "WINDOW", "PACE", "REMAINING", "EXPECTED", "RUNS OUT", "RESETS")}
 	for _, win := range r.Windows {
 		a := Calculate(win, now)
+		projection := Forecast(win, now)
+		runsOut := "-"
+		switch projection.State {
+		case "dry":
+			runsOut = usage.ResetsCell(provider.Window{ResetsAt: *projection.ExhaustionAt}, now)
+		case "empty":
+			runsOut = "empty"
+		}
 		expected := "-"
 		if a.ExpectedRemainingPercent != nil {
 			expected = fmt.Sprintf("%.1f%%", *a.ExpectedRemainingPercent)
 		}
-		rows = append(rows, []display.Cell{display.ProviderCell(renderer, win.Provider), {Text: win.Name}, {Text: a.Pace, Style: renderer.NewStyle().Foreground(display.PaceColor(a.Pace)).Bold(true)}, display.RemainingCell(renderer, a.RemainingPercent, win.RateLimited), {Text: expected}, display.ResetCell(renderer, usage.ResetsCell(win, now), win.RateLimited)})
+		rows = append(rows, []display.Cell{display.ProviderCell(renderer, win.Provider), {Text: win.Name}, {Text: a.Pace, Style: renderer.NewStyle().Foreground(display.PaceColor(a.Pace)).Bold(true)}, display.RemainingCell(renderer, a.RemainingPercent, win.RateLimited), {Text: expected}, {Text: runsOut}, display.ResetCell(renderer, usage.ResetsCell(win, now), win.RateLimited)})
 	}
 	rows = append(rows, usage.MessageRows(renderer, r)...)
 	return display.Table(w, rows)
@@ -74,6 +82,7 @@ func renderTextStyled(w io.Writer, r usage.Result, now time.Time, renderer *lipg
 type assessedWindow struct {
 	window     provider.Window
 	assessment Assessment
+	projection Projection
 }
 
 func (w assessedWindow) MarshalJSON() ([]byte, error) {
@@ -85,7 +94,16 @@ func (w assessedWindow) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return nil, err
 	}
-	assessment, err := json.Marshal(w.assessment)
+	var exhaustion *string
+	if w.projection.ExhaustionAt != nil {
+		formatted := w.projection.ExhaustionAt.Format(time.RFC3339)
+		exhaustion = &formatted
+	}
+	assessment, err := json.Marshal(struct {
+		Assessment
+		Exhaustion *string  `json:"projected_exhaustion_at"`
+		Remaining  *float64 `json:"projected_remaining_at_reset"`
+	}{w.assessment, exhaustion, w.projection.RemainingAtReset})
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +130,7 @@ func RenderJSON(w io.Writer, r usage.Result, now time.Time) error {
 		Undetected []undetected     `json:"undetected"`
 	}{make([]assessedWindow, 0, len(r.Windows)), make([]failure, 0, len(r.Errors)), make([]undetected, 0, len(r.Undetected))}
 	for _, win := range r.Windows {
-		env.Windows = append(env.Windows, assessedWindow{win, Calculate(win, now)})
+		env.Windows = append(env.Windows, assessedWindow{win, Calculate(win, now), Forecast(win, now)})
 	}
 	for _, e := range r.Errors {
 		env.Errors = append(env.Errors, failure{e.Provider, e.Message})

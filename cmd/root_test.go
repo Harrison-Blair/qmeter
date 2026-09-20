@@ -79,7 +79,7 @@ func TestRoot_RunsTheDashboardWithItsOwnFlags(t *testing.T) {
 	if root.RunE == nil {
 		t.Error("the root command has no behaviour of its own")
 	}
-	for _, name := range []string{"filter", "no-banner"} {
+	for _, name := range []string{"filter", "no-banner", "vertical"} {
 		if f := root.Flags().Lookup(name); f == nil {
 			t.Errorf("root has no --%s flag", name)
 		}
@@ -92,7 +92,7 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(--help): %v", err)
 	}
-	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--json"} {
+	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help does not mention %q:\n%s", want, out.String())
 		}

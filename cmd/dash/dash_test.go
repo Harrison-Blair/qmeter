@@ -394,3 +394,63 @@ func TestCmd_DefaultsToTheRealCollaborators(t *testing.T) {
 	// panicking on a nil file; the answer depends on how the tests run.
 	_ = stdoutIsTerminal()
 }
+
+func TestCmd_VerticalDashboardFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		args             []string
+		vertical, banner bool
+		providers        string
+	}{
+		{"default", nil, false, true, "claude,codex,opencode-go,cursor"},
+		{"vertical", []string{"--vertical"}, true, true, "claude,codex,opencode-go,cursor"},
+		{"combined", []string{"--vertical", "--no-banner", "--filter", "codex,claude"}, true, false, "claude,codex"},
+		{"explicit false", []string{"--vertical=false"}, false, true, "claude,codex,opencode-go,cursor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTestRoot(t, true)
+			f := tr.cmd.Flags().Lookup("vertical")
+			if f == nil || f.DefValue != "false" || f.Shorthand != "" || tr.cmd.PersistentFlags().Lookup("vertical") != nil {
+				t.Fatal("vertical must be a root-local flag defaulting to false without shorthand")
+			}
+			if err := tr.execute(t, tc.args...); err != nil {
+				t.Fatal(err)
+			}
+			if len(tr.runs) != 1 {
+				t.Fatalf("runs = %d, want 1", len(tr.runs))
+			}
+			got := tr.runs[0]
+			if got.Vertical != tc.vertical || got.Banner != tc.banner || joined(providerIDs(got.Providers)) != tc.providers {
+				t.Fatalf("unexpected options: %#v", got)
+			}
+		})
+	}
+}
+
+func TestCmd_VerticalDoesNotChangeNonInteractiveOutput(t *testing.T) {
+	for _, asJSON := range []bool{false, true} {
+		t.Run(map[bool]string{false: "piped", true: "json"}[asJSON], func(t *testing.T) {
+			var baseline string
+			for _, vertical := range []bool{false, true} {
+				tr := newTestRoot(t, asJSON)
+				args := []string{"--filter", "claude", "--no-banner"}
+				if asJSON {
+					args = append(args, "--json")
+				}
+				if vertical {
+					args = append(args, "--vertical")
+				}
+				if err := tr.execute(t, args...); err != nil {
+					t.Fatal(err)
+				}
+				if len(tr.runs) != 0 || tr.configLoads != 0 {
+					t.Fatal("noninteractive output entered dashboard")
+				}
+				if vertical && tr.out.String() != baseline {
+					t.Fatalf("vertical changed output: %q vs %q", tr.out.String(), baseline)
+				}
+				baseline = tr.out.String()
+			}
+		})
+	}
+}

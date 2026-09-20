@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 
 func mustRender(t *testing.T, pct float64, width int, rl bool) gauge.Block {
 	t.Helper()
-	b, err := gauge.Render(pct, width, rl, gauge.NoPace)
+	b, err := gauge.Render(pct, width, rl, gauge.NoPace, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render(%v, %d, %v) returned error: %v", pct, width, rl, err)
 	}
@@ -140,10 +140,10 @@ func TestRenderRefusesAGaugeUnderTheTwentyCellFloor(t *testing.T) {
 	if gauge.MinWidth != 22 {
 		t.Errorf("MinWidth = %d, want 22 (a 20-cell track plus the two caps)", gauge.MinWidth)
 	}
-	if _, err := gauge.Render(50, gauge.MinWidth, false, gauge.NoPace); err != nil {
+	if _, err := gauge.Render(50, gauge.MinWidth, false, gauge.NoPace, gauge.NoForecast); err != nil {
 		t.Errorf("Render at MinWidth returned error: %v", err)
 	}
-	b, err := gauge.Render(50, gauge.MinWidth-1, false, gauge.NoPace)
+	b, err := gauge.Render(50, gauge.MinWidth-1, false, gauge.NoPace, gauge.NoForecast)
 	if err == nil {
 		t.Fatalf("Render at %d cells returned no error, want one", gauge.MinWidth-1)
 	}
@@ -194,7 +194,7 @@ func TestRenderColoursEveryPartOfTheTrack(t *testing.T) {
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
 	const width = 25 // 23 cells; 90% puts the needle at cell 20
-	b, err := gauge.Render(90, width, false, gauge.NoPace)
+	b, err := gauge.Render(90, width, false, gauge.NoPace, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestRateLimitedFillIsRed(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(90, 25, true, gauge.NoPace)
+	b, err := gauge.Render(90, 25, true, gauge.NoPace, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestPlainStripsTheStyling(t *testing.T) {
 	bare := mustRender(t, 68, 25, false) // Ascii profile: already unstyled
 
 	lipgloss.SetColorProfile(termenv.ANSI256)
-	styled, err := gauge.Render(68, 25, false, gauge.NoPace)
+	styled, err := gauge.Render(68, 25, false, gauge.NoPace, gauge.NoForecast)
 	lipgloss.SetColorProfile(termenv.Ascii)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
@@ -251,7 +251,7 @@ func TestPlainStripsTheStyling(t *testing.T) {
 // mustRenderPace is mustRender with a pace marker.
 func mustRenderPace(t *testing.T, pct float64, width int, rl bool, pace float64) gauge.Block {
 	t.Helper()
-	b, err := gauge.Render(pct, width, rl, pace)
+	b, err := gauge.Render(pct, width, rl, pace, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render(%v, %d, %v, %v) returned error: %v", pct, width, rl, pace, err)
 	}
@@ -312,7 +312,7 @@ func TestPaceMarkerIsCyan(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(68, 25, false, 0.5)
+	b, err := gauge.Render(68, 25, false, 0.5, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(90, 25, true, 0.5)
+	b, err := gauge.Render(90, 25, true, 0.5, gauge.NoForecast)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
