@@ -32,7 +32,11 @@ func amount(value *float64, unit string) string {
 	if unit == "usd" {
 		return fmt.Sprintf("$%.2f", *value)
 	}
-	text := strconv.FormatFloat(*value, 'f', -1, 64)
+	// Vendors report these as plain float64s, so a third of a hundred arrives
+	// as 33.333333333333336. Two decimals match the money column and keep the
+	// string narrow enough for the dashboard ledger's meter row; the trailing
+	// zeroes come off again so whole numbers stay whole.
+	text := strings.TrimSuffix(strings.TrimRight(strconv.FormatFloat(*value, 'f', 2, 64), "0"), ".")
 	if unit == "percent" {
 		text += "%"
 	}

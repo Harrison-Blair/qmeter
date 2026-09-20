@@ -71,3 +71,30 @@ draw its marker — a 0.0% window renders `┴▲▱▱▱…┴` with no ✕, c
 The adjacent `empty` text note still conveys the state, and there is no free cell at needle 0, so
 this may be acceptable as-is — but the constant and its comment promise behaviour the code cannot
 deliver.
+
+## Resolution (2026-09-20)
+
+All three findings are closed. Each code change was written test-first: the new cases
+were run and seen to fail for the stated reason before the fix went in.
+
+1. **Fixed.** `balancesFrom` (`internal/provider/claude/claude.go`) now gates the money
+   row on `spend.enabled` and the percent row on `extra_usage.is_enabled`, through a
+   shared `sectionEnabled` helper. Only an explicit `false` switches a section off, so
+   responses that omit the flag behave exactly as before. A disabled `spend` still falls
+   through to an enabled `extra_usage`. The synthetic live capture has both switched
+   off and now reports no balance at all instead of an available dollar.
+   `internal/provider/claude/balances_test.go` covers enabled money, disabled money
+   falling back to percent, both disabled, and a disabled `extra_usage` alone.
+   `docs/specs/gauge-additions.md` gains rule 7 for the same behaviour.
+2. **Fixed.** `amount` (`internal/spend/render.go`) formats non-USD values at two
+   decimals and trims the trailing zeroes, so `33.333333333333336` renders as `33.33`
+   while `10` stays `10` and `62.5%` stays `62.5%`. Existing `TestAmounts` expectations
+   are unchanged; four repeating and rounding cases were added.
+3. **Documented, not changed** — the owner's call. The `RunsDry` comment in
+   `internal/dash/gauge/gauge.go` now says the ✕ draws only while the window still
+   holds some allowance, since at 0% the needle itself occupies cell zero and the
+   adjacent `empty` note carries the state. No render change, so the layout goldens
+   stay byte-identical.
+
+Verified after the changes: `gofmt -l .` clean, `go vet ./...` clean,
+`go test -race ./...` all 30 packages pass.
