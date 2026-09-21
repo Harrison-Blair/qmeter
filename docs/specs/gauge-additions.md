@@ -354,11 +354,17 @@ covers both.
 5. Claude `spend.balance` is null, but when explicit `spend.used` and `spend.limit`
    are present, normalized `Remaining` is `limit - used`: USD 1.00 - USD 0.00 = USD
    1.00 in this capture.
-6. Claude yields one ledger row: use `spend` when it has usable money values. When
-   usable `spend.used`/`spend.limit` money values are absent, use
-   `extra_usage.utilization` for a percent-unit row and calculate remaining percent
-   from utilization. Do not interpret
+6. Claude yields one ledger row: use `spend` when it is enabled and has usable money
+   values. When `spend` is disabled, or when usable `spend.used`/`spend.limit` money
+   values are absent, use `extra_usage.utilization` for a percent-unit row and
+   calculate remaining percent from utilization. Do not interpret
    `extra_usage.monthly_limit` or `extra_usage.used_credits` as dollars.
+7. A section the account has switched off yields no row, matching rule 4 for cursor
+   (amended 2026-09-20): `spend.enabled: false` skips the money row even though the
+   disabled section still carries `used` and `limit`, and `extra_usage.is_enabled:
+   false` skips the percent row. Only an explicit `false` switches a section off; an
+   absent flag leaves the section's own amounts to decide. Both are off in the one
+   live claude capture, which therefore yields no ledger row at all.
 
 ### `qmeter spend`
 

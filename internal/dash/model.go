@@ -66,9 +66,9 @@ var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Ti
 // a spinner where the key would be — and before the first result there is
 // nothing to scroll either, so quitting is the only key worth naming.
 const (
-	keyHints      = "↑↓ scroll · r refresh · q quit · t timeline"
-	busyKeyHints  = " refreshing · q quit · t timeline" // after the spinner
-	firstKeyHints = " fetching · q quit · t timeline"   // after the spinner
+	keyHints      = "↑↓ scroll · r refresh · q quit · t timeline · c calendar"
+	busyKeyHints  = " refreshing · q quit · t timeline · c calendar" // after the spinner
+	firstKeyHints = " fetching · q quit · t timeline · c calendar"   // after the spinner
 	scrollHint    = "↑↓ scroll · "
 	fetchingLabel = "fetching…"
 
@@ -131,6 +131,7 @@ type Model struct {
 	vertical          bool
 	fit               bool
 	timeline          bool
+	calendar          bool
 	theme             theme.Theme
 	meterWidth        int
 	refreshInterval   time.Duration
@@ -313,6 +314,11 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.offset = m.clamp(len(body))
 	case "t":
 		m.timeline = !m.timeline
+		m.calendar = false
+		m.offset = 0
+	case "c":
+		m.calendar = !m.calendar
+		m.timeline = false
 		m.offset = 0
 	case "r":
 		// A second refresh while one is in flight would fetch every
@@ -357,6 +363,8 @@ func (m Model) frame() (header, body []string, fits int) {
 	draw := layout.Render
 	if m.timeline {
 		draw = layout.RenderTimeline
+	} else if m.calendar {
+		draw = layout.RenderCalendar
 	}
 	head := 1
 	if m.banner && m.width >= banner.Width {
@@ -445,10 +453,10 @@ func (m Model) hints() []seg {
 	frame := seg{string([]rune(spinFrames)[m.spin]), spinStyle}
 	keys, busy, first, scroll := keyHints, busyKeyHints, firstKeyHints, scrollHint
 	if m.width < resets.MinWidth {
-		keys = "↑↓ scroll·r refresh·q quit·t ↔"
-		busy = " refreshing·q quit·t ↔"
-		first = " fetching·q quit·t ↔"
-		scroll = "↑↓ scroll·"
+		keys = "↑↓ scroll·r refresh·q quit·t ↔·c ↔"
+		busy = " refreshing·q quit·t ↔·c ↔"
+		first = " fetching·q quit·t ↔·c ↔"
+		scroll = "↑↓scroll·"
 	}
 	switch {
 	case m.loading && !m.haveRes:

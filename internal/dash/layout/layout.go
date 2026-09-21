@@ -145,6 +145,9 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	cols, colw, gutter := columns(width, len(present), target)
+	if o.Fit && cols == 2 && colw-4 < max(gauge.MinWidth, (target*4+4)/5)+pctWidth+1+1+cdWidth {
+		cols, colw, gutter = 1, width, 0
+	}
 	if o.Vertical {
 		cols, colw, gutter = 1, width, 0
 	}
@@ -152,7 +155,7 @@ func Render(r usage.Result, width int, o Options) []string {
 		target = colw - (pctWidth + 1 + 1 + cdWidth)
 	}
 	if o.Fit {
-		return finish(append(rows, fitSections(r, present, cols, colw, gutter, now, target, o.BodyHeight)...), width)
+		return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight)...), width)
 	}
 	for i := 0; i < len(present); i += cols {
 		if i > 0 && width >= sectionGapMin {
@@ -373,6 +376,19 @@ func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int
 	return spreadBlocks(sectionBlocks(r, p, colw, now, meterWidth), 0)
 }
 
+// providerPlan uses only the provider's first window, even when its plan is empty.
+func providerPlan(r usage.Result, id string) string {
+	for _, w := range r.Windows {
+		if w.Provider == id {
+			if w.Plan != "" {
+				return w.Plan
+			}
+			return "-"
+		}
+	}
+	return "-"
+}
+
 // sectionBlocks attaches the heading to the first item; each later item is atomic.
 func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) [][]row {
 	var windows []provider.Window
@@ -381,12 +397,7 @@ func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWid
 			windows = append(windows, w)
 		}
 	}
-	plan := "-"
-	if len(windows) > 0 && windows[0].Plan != "" {
-		plan = windows[0].Plan
-	}
-
-	out := [][]row{{sectionHead(p, plan, colw)}}
+	out := [][]row{{sectionHead(p, providerPlan(r, p.id), colw)}}
 	for _, w := range windows {
 		out = append(out, windowBlock(w, p, colw, now, meterWidth))
 	}

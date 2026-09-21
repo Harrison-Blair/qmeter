@@ -807,12 +807,12 @@ func footerOf(t *testing.T, m Model) string {
 // keeps it through the next refresh so the old page is dated while the
 // new one is fetched.
 func TestView_FooterSaysWhenTheNumbersWereLastTrue(t *testing.T) {
-	m := shown(t, true, sample(), 80, 24)
+	m := shown(t, true, sample(), 100, 24)
 	if got := footerOf(t, m); !strings.HasSuffix(got, "updated 14:22:07") {
 		t.Errorf("footer = %q, want it to end with updated 14:22:07", got)
 	}
-	if line := viewLines(t, m)[23]; runewidth.StringWidth(line) != 80 {
-		t.Errorf("footer is %d cells, want 80", runewidth.StringWidth(line))
+	if line := viewLines(t, m)[23]; runewidth.StringWidth(line) != 100 {
+		t.Errorf("footer is %d cells, want 100", runewidth.StringWidth(line))
 	}
 	m, _ = press(t, m, "r")
 	got := footerOf(t, m)
@@ -823,8 +823,8 @@ func TestView_FooterSaysWhenTheNumbersWereLastTrue(t *testing.T) {
 
 // TestView_FooterDropsTheTimestampBeforeTheCounts: on a terminal too
 // narrow for everything the update time goes first, then the row counts,
-// and the keys never. At 56 cells the counts and keys fit (41 cells) but
-// the timestamp (16 cells plus a gap) does not; at 60 everything fits.
+// and the keys never. At 56 cells the counts and keys fit (45 cells) but
+// the timestamp (16 cells plus a gap) does not; at 64 everything fits.
 func TestView_FooterDropsTheTimestampBeforeTheCounts(t *testing.T) {
 	narrow := footerOf(t, shown(t, true, sample(), 56, 24))
 	if strings.Contains(narrow, "updated") {
@@ -833,9 +833,9 @@ func TestView_FooterDropsTheTimestampBeforeTheCounts(t *testing.T) {
 	if !strings.Contains(narrow, "more") || !strings.Contains(narrow, "q quit") {
 		t.Errorf("footer at 56 cells = %q, want the counts and keys kept", narrow)
 	}
-	wide := footerOf(t, shown(t, true, sample(), 60, 24))
+	wide := footerOf(t, shown(t, true, sample(), 64, 24))
 	if !strings.Contains(wide, "more") || !strings.HasSuffix(wide, "updated 14:22:07") {
-		t.Errorf("footer at 60 cells = %q, want the counts and the update time", wide)
+		t.Errorf("footer at 64 cells = %q, want the counts and the update time", wide)
 	}
 }
 

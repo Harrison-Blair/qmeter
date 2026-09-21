@@ -41,7 +41,10 @@ type Block struct {
 // window's period is not known, so there is no even pace to mark.
 const NoPace = -1
 
-// NoForecast leaves the track unchanged; RunsDry marks exhaustion at cell zero.
+// NoForecast leaves the track unchanged. RunsDry marks projected exhaustion
+// with a ✕ at cell zero, which is drawn only while the window still holds
+// some allowance: at 0% the needle itself occupies cell zero, so a spent
+// window keeps its needle and the adjacent "empty" note carries the state.
 const (
 	NoForecast = -1
 	RunsDry    = -2

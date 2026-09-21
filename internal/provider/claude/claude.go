@@ -203,26 +203,37 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 
 // balancesFrom prefers explicitly denominated spend money over the legacy
 // extra_usage percentage. The legacy credit counts do not establish dollars.
+// A section the account has switched off reports no balance at all: a
+// disabled spend section still carries its used and limit amounts, and
+// passing those on would tell a user who is out of credits that money is
+// there to spend.
 func balancesFrom(body map[string]json.RawMessage) []provider.Balance {
 	var spend struct {
-		Used  json.RawMessage `json:"used"`
-		Limit json.RawMessage `json:"limit"`
+		Used    json.RawMessage `json:"used"`
+		Limit   json.RawMessage `json:"limit"`
+		Enabled *bool           `json:"enabled"`
 	}
 	_ = json.Unmarshal(body["spend"], &spend)
-	used, limit := dollarsFrom(spend.Used), dollarsFrom(spend.Limit)
-	if used != nil || limit != nil {
-		b := provider.Balance{Provider: providerID, Name: "extra usage", Unit: "usd", Used: used, Limit: limit}
-		if used != nil && limit != nil {
-			remaining := *limit - *used
-			b.Remaining = &remaining
+	if sectionEnabled(spend.Enabled) {
+		used, limit := dollarsFrom(spend.Used), dollarsFrom(spend.Limit)
+		if used != nil || limit != nil {
+			b := provider.Balance{Provider: providerID, Name: "extra usage", Unit: "usd", Used: used, Limit: limit}
+			if used != nil && limit != nil {
+				remaining := *limit - *used
+				b.Remaining = &remaining
+			}
+			return []provider.Balance{b}
 		}
-		return []provider.Balance{b}
 	}
 
 	var extra struct {
 		Utilization *float64 `json:"utilization"`
+		IsEnabled   *bool    `json:"is_enabled"`
 	}
 	if json.Unmarshal(body["extra_usage"], &extra) != nil || extra.Utilization == nil {
+		return nil
+	}
+	if !sectionEnabled(extra.IsEnabled) {
 		return nil
 	}
 	limitPercent, remaining := 100.0, 100-*extra.Utilization
@@ -231,6 +242,12 @@ func balancesFrom(body map[string]json.RawMessage) []provider.Balance {
 		Used: extra.Utilization, Limit: &limitPercent, Remaining: &remaining,
 	}}
 }
+
+// sectionEnabled reads a vendor on/off flag that may be missing. Only an
+// explicit false switches a section off; an absent flag is no claim either
+// way, so the section's own amounts decide as they did before the flag was
+// read at all.
+func sectionEnabled(flag *bool) bool { return flag == nil || *flag }
 
 // dollarsFrom requires the amount, currency and precision to be explicit;
 // missing money fields must not become known zeroes.
