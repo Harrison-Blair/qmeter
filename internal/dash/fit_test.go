@@ -40,8 +40,9 @@ func TestFitModelViewportAndReflow(t *testing.T) {
 		m = resize(t, m, 120, 10)
 		m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyEnd})
 		m, _ = step(t, m, resultMsg{usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "one"}}}})
-		if m.offset != 0 {
-			t.Fatal("result did not clamp scroll")
+		_, body, capacity = m.frame()
+		if want := max(0, len(body)-capacity); m.offset != want {
+			t.Fatalf("result scroll offset = %d, want %d", m.offset, want)
 		}
 		for _, height := range []int{1, 2, 5, 10, 60} {
 			m = resize(t, m, 120, height)

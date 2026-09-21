@@ -42,7 +42,8 @@ using the same fetch. Providers with no balances get no ledger rows.
 | `Space` / `PgDn`, `b` / `PgUp` | scroll a page |
 | `g` / `Home`, `G` / `End` | jump to the top or the bottom |
 | `r` | fetch every provider again |
-| `t` | toggle gauges and the reset timeline |
+| `t` | toggle timeline and gauges; switch directly from calendar to timeline |
+| `c` | toggle calendar and gauges; switch directly from timeline to calendar |
 | `q`, `Esc`, `Ctrl-C` | quit |
 
 Dashboard flags:
@@ -53,12 +54,18 @@ Dashboard flags:
 - `--no-banner` replaces the wordmark with the one-line summary header.
 - `--vertical` stacks providers in one full-width column and stretches meters
   to the terminal width, leaving 14 cells for percentages, spacing, and countdowns.
-- `--fit` stretches meters within the normal one- or two-column layout and
-  spreads spare body rows between intact windows and provider sections. It also
-  stretches and spaces the reset timeline. Combine it with `--vertical` for one
-  column or `--no-banner` for more body space. Text and meter thickness stay the
-  same; content that cannot fit remains scrollable. The banner keeps its normal
-  width-based fallback even in short terminals.
+- `--fit` draws framed provider cards in one or two columns, with meters filling
+  each card's inner width. Windows and status rows stay packed together and
+  centred vertically; spare body rows are shared equally between card rows.
+  A lone last card spans the full width. Below 40 columns, compact unframed
+  sections have spare rows shared above, between and below them. In the timeline,
+  spare height is shared between full-width provider cards, with packed rows
+  centred inside each card. In the calendar, the day grid grows so its bottom
+  strip stays at the bottom of the body.
+  Combine with `--vertical` for one column or `--no-banner` for more body space.
+  Text and meter thickness stay the same; content that cannot fit remains
+  scrollable. The banner keeps its normal width-based fallback even in short
+  terminals.
 
 The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
@@ -114,8 +121,12 @@ through 200. Meters grow toward that target, use one or two columns according
 to the available terminal width, and shrink only when necessary to keep the
 dashboard usable. `--vertical` overrides `meter_width`: meters fill the available
 width even when it exceeds 200 cells. With `--fit`, `meter_width` still decides
-when two columns fit; meters then stretch to their column width, beyond the
-configured preference if space permits. `--fit --vertical` always uses one column.
+when two columns fit, accounting for the card frames; meters then stretch to
+the cards' inner width, beyond the configured preference if space permits.
+A lone last card fills the page width. `--fit --vertical` always uses one framed
+column (unframed below 40 columns). Timeline and calendar widths follow their
+own layouts regardless of `meter_width` or `--vertical`; `--fit` only expands
+those views to the available body height.
 Without either flag, the configured preference still applies. `--fit` is a
 root-only flag, defaults to off, and has no configuration key.
 
@@ -175,8 +186,29 @@ seven days. The provider glyph marks its reset, colored by remaining allowance;
 `▸` marks a reset beyond seven days. Unknown reset times sort last and have no
 marker. An `↑RL` label identifies a reset that lifts a rate limit.
 Narrow terminals and piped output use a plain `PROVIDER WINDOW REMAINING RESETS`
-table. The dashboard's `t` key toggles the same timeline; refresh and scrolling
-work on both pages, and each launch starts with gauges.
+table. This CLI output is independent of the dashboard views.
+
+In the dashboard, `t` opens a timeline of full-width provider cards under one
+shared now-to-seven-days ruler. Bars end at provider-coloured reset markers,
+with countdowns beside them. Weekday labels and vertical guides mark local
+midnights; below 70 columns this view uses the plain reset table. `--fit` shares
+spare body rows between the cards and centres each provider's packed rows.
+Without it, cards keep their minimum height.
+
+The dashboard's `c` opens a calendar starting with today's local date. It shows
+`min(8, (width+1)/15)` days, each at least 14 cells wide, separated by one cell;
+column width is `(width+1)/days - 1` using integer division. Each entry shows the
+local reset time, provider glyph, remaining allowance, window name and countdown.
+Already-due windows appear in today. Resets after the visible days, unknown reset
+times and provider messages appear in a bottom strip. `--fit` extends the day
+columns to fill the body and keeps that strip at the bottom. Without it, the grid
+is only as tall as its busiest day. The calendar needs at least 36 columns.
+
+Pressing the active view's key returns to gauges; pressing the other view's key
+switches directly. Each switch returns to the top. Refresh, scrolling and the
+pinned banner/footer work in all three views, and each launch starts with gauges.
+Both reset views ignore balances and remain scrollable when their content is
+taller than the available body.
 
 ```sh
 qmeter resets

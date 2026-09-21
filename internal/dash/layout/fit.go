@@ -1,10 +1,12 @@
 package layout
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func pageHeader(result usage.Result, width int, o Options) []row {
@@ -38,84 +40,77 @@ func spreadBlocks(blocks [][]row, extra int) []row {
 	return out
 }
 
-// fitSections measures compact grid rows before allocating any extra space.
-// A paired row owns as many elastic slots as its more divided section.
-func fitSections(result usage.Result, providers []provInfo, cols, colw, gutter int, now time.Time, target, capacity int) []row {
-	type gridRow struct {
-		sections     [][][]row
-		height, gaps int
+// fitSections keeps each provider's content packed and centres it in a card.
+func fitSections(result usage.Result, providers []provInfo, width, cols, colw, gutter int, now time.Time, capacity int) []row {
+	if colw < MinColumn+4 {
+		sections := make([][]row, 0, len(providers))
+		compact := 0
+		for i := 0; i < len(providers); i += cols {
+			lines := sectionRow(result, providers[i:min(i+cols, len(providers))], colw, gutter, now, colw-(pctWidth+1+1+cdWidth))
+			sections = append(sections, lines)
+			compact += len(lines)
+		}
+		extra := max(0, capacity-compact)
+		var out []row
+		for i, lines := range sections {
+			out = append(out, make([]row, share(extra, len(sections)+1, i))...)
+			out = append(out, lines...)
+		}
+		return append(out, make([]row, share(extra, len(sections)+1, len(sections)))...)
 	}
-	var grid []gridRow
-	compact, slots := 0, 0
+	type cardRow struct {
+		content       [][]row
+		width, height int
+	}
+	var grid []cardRow
+	compact := 0
 	for i := 0; i < len(providers); i += cols {
-		g := gridRow{}
-		for _, p := range providers[i:min(i+cols, len(providers))] {
-			blocks := sectionBlocks(result, p, colw, now, target)
-			height := 0
-			for _, b := range blocks {
-				height += len(b)
-			}
-			g.sections = append(g.sections, blocks)
-			g.height = max(g.height, height)
-			g.gaps = max(g.gaps, len(blocks)-1)
+		ps := providers[i:min(i+cols, len(providers))]
+		g := cardRow{width: colw}
+		if len(ps) == 1 {
+			g.width = width
+		}
+		inner := g.width - 4
+		for _, p := range ps {
+			content := section(result, p, inner, now, inner-(pctWidth+1+1+cdWidth))[1:]
+			g.content = append(g.content, content)
+			g.height = max(g.height, len(content)+2)
 		}
 		grid = append(grid, g)
 		compact += g.height
-		slots += g.gaps
 	}
-	slots += len(grid) - 1
 	extra := max(0, capacity-compact)
 	var out []row
-	slot := 0
-	if slots == 0 {
-		out = append(out, make([]row, extra/2)...)
-	}
 	for i, g := range grid {
-		if i > 0 {
-			out = append(out, make([]row, share(extra, slots, slot))...)
-			slot++
-		}
-		expansion := 0
-		for j := 0; j < g.gaps; j++ {
-			expansion += share(extra, slots, slot)
-			slot++
-		}
-		lines := make([]row, g.height+expansion)
-		for col, blocks := range g.sections {
-			section := spreadBlocks(blocks, expansion)
+		height := g.height + share(extra, len(grid), i)
+		lines := make([]row, height)
+		for col, content := range g.content {
+			p := providers[i*cols+col]
+			rule := lipgloss.NewStyle().Foreground(p.color).Faint(true)
+			top := row{}.put(rule, "╭").join(sectionHead(p, providerPlan(result, p.id), g.width-2)).put(rule, "╮")
+			above := (height - 2 - len(content)) / 2
 			for y := range lines {
+				var line row
+				switch y {
+				case 0:
+					line = top
+				case height - 1:
+					line = row{}.put(rule, "╰"+strings.Repeat("─", g.width-2)+"╯")
+				default:
+					line = row{}.put(rule, "│ ")
+					at := y - 1 - above
+					if at >= 0 && at < len(content) {
+						line = line.join(content[at])
+					}
+					line = line.pad(g.width-2).put(rule, " │")
+				}
 				if col > 0 {
 					lines[y] = lines[y].pad(col * (colw + gutter))
 				}
-				if y < len(section) {
-					lines[y] = lines[y].join(section[y])
-				}
+				lines[y] = lines[y].join(line)
 			}
 		}
 		out = append(out, lines...)
 	}
-	if slots == 0 {
-		out = append(out, make([]row, extra-extra/2)...)
-	}
 	return out
-}
-
-// fitTimeline keeps the ruler/table heading attached to the first item.
-func fitTimeline(lines []string, capacity int) []row {
-	blocks := [][]row{{}}
-	for i, line := range lines {
-		r := row{text: line}
-		if i < 2 {
-			blocks[0] = append(blocks[0], r)
-		} else {
-			blocks = append(blocks, []row{r})
-		}
-	}
-	extra := max(0, capacity-len(lines))
-	if len(blocks) > 1 {
-		return spreadBlocks(blocks, extra)
-	}
-	out := make([]row, extra/2)
-	out = append(out, blocks[0]...)
-	return append(out, make([]row, extra-extra/2)...)
 }

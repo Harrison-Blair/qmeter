@@ -120,39 +120,6 @@ func Rows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer, t
 	return out
 }
 
-// FitRows draws a timeline with a shared name field and gives its remaining
-// width to the axis. Narrow widths retain the ordinary table layout.
-func FitRows(result usage.Result, now time.Time, width int, r *lipgloss.Renderer, th display.Theme) []string {
-	if width < MinWidth {
-		return Rows(result, now, width, r, th)
-	}
-	if len(result.Windows) == 0 && len(result.Errors) == 0 && len(result.Undetected) == 0 {
-		return []string{"no providers detected"}
-	}
-	nameWidth := 10
-	for _, w := range result.Windows {
-		name := w.Name
-		if w.RateLimited {
-			name += rateLimitSuffix
-		}
-		nameWidth = max(nameWidth, runewidth.StringWidth(name))
-	}
-	nameWidth = min(nameWidth, width-60)
-	axisWidth := width - nameWidth - 17
-	out := []string{strings.Repeat(" ", nameWidth+10) + "now" + strings.Repeat(" ", axisWidth-6) + "+7d"}
-	for _, w := range Sort(result.Windows) {
-		out = append(out, timelineRow(w, now, nameWidth, axisWidth, r, th))
-	}
-	var table [][]display.Cell
-	table = append(table, usage.MessageRows(r, result)...)
-	if len(table) > 0 {
-		var b strings.Builder
-		_ = display.Table(&b, table) // strings.Builder writes cannot fail.
-		out = append(out, strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
-	}
-	return out
-}
-
 func fittedCell(d time.Duration, axisWidth int) int {
 	if d <= 0 {
 		return 0
