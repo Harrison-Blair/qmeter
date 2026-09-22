@@ -304,10 +304,10 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 		return lines[len(lines)-1]
 	}
 
-	// 6 banner rows + 38 body rows, 17 of them on screen.
+	// 6 banner rows + 42 body rows (four cards), 17 of them on screen.
 	top := footer(m)
-	if !strings.Contains(top, "↓ 21 more") {
-		t.Errorf("footer at the top = %q, want it to count 21 rows below", top)
+	if !strings.Contains(top, "↓ 25 more") {
+		t.Errorf("footer at the top = %q, want it to count 25 rows below", top)
 	}
 	if n := strings.Count(top, "more"); n != 1 {
 		t.Errorf("footer at the top = %q, want exactly one hidden-row count", top)
@@ -320,14 +320,14 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 
 	m, _ = press(t, m, "j", "j")
 	mid := footer(m)
-	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 19 more") {
-		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 19 more", mid)
+	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 23 more") {
+		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 23 more", mid)
 	}
 
 	m, _ = press(t, m, "G")
 	bottom := footer(m)
-	if !strings.Contains(bottom, "↑ 21 more") {
-		t.Errorf("footer at the bottom = %q, want ↑ 21 more", bottom)
+	if !strings.Contains(bottom, "↑ 25 more") {
+		t.Errorf("footer at the bottom = %q, want ↑ 25 more", bottom)
 	}
 	if n := strings.Count(bottom, "more"); n != 1 {
 		t.Errorf("footer at the bottom = %q, want exactly one hidden-row count", bottom)
@@ -896,13 +896,24 @@ func TestVerticalSurvivesResizeAndScroll(t *testing.T) {
 			m = resize(t, m, width, 16)
 			m, _ = press(t, m, "home")
 			lines := viewLines(t, m)
+			// A framed card's meter is the page less the frame and the
+			// percentage and countdown fields; below 40 cells there is no
+			// frame. The bezel row is the one with tick marks, which tells
+			// it apart from a card's top frame.
+			want := width - 18
+			if width < 40 {
+				want = width - 14
+			}
 			foundGauge := false
 			for _, line := range lines {
+				if !strings.Contains(line, "┬") {
+					continue
+				}
 				start, end := strings.Index(line, "╭"), strings.Index(line, "╮")
 				if start >= 0 && end > start {
 					foundGauge = true
-					if got := runewidth.StringWidth(line[start:end]) + 1; got != width-14 {
-						t.Fatalf("width %d: gauge width = %d, want %d", width, got, width-14)
+					if got := runewidth.StringWidth(line[start:end]) + 1; got != want {
+						t.Fatalf("width %d: gauge width = %d, want %d", width, got, want)
 					}
 				}
 			}

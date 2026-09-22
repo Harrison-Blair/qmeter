@@ -26,7 +26,7 @@ func RenderCalendar(result usage.Result, width int, o Options) []string {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	rows := pageHeader(result, width, o)
+	rows := header(result, width, o.Banner, o.Theme)
 	if len(result.Windows)+len(result.Errors)+len(result.Undetected) == 0 {
 		return finish(append(rows, row{}.put(dimStyle, "no providers detected")), width)
 	}
@@ -89,9 +89,7 @@ func RenderCalendar(result usage.Result, width int, o Options) []string {
 	if len(strip) > 0 {
 		stripHeight = len(strip) + 1
 	}
-	if o.Fit {
-		height = max(height, o.BodyHeight-2-stripHeight)
-	}
+	height = max(height, o.BodyHeight-2-stripHeight)
 	rows = append(rows, head, rule)
 	for y := 0; y < height; y++ {
 		var line row

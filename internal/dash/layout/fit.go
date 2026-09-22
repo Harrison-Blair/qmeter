@@ -4,18 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Harrison-Blair/qmeter/internal/dash/banner"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 	"github.com/charmbracelet/lipgloss"
 )
-
-func pageHeader(result usage.Result, width int, o Options) []row {
-	rows := header(result, width, o.Banner, o.Theme)
-	if o.Fit && o.Banner && width >= wideGutterMin {
-		rows = rows[:banner.Height]
-	}
-	return rows
-}
 
 // share assigns the remainder to the earliest gaps.
 func share(total, gaps, index int) int {

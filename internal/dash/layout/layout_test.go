@@ -125,19 +125,20 @@ func TestEveryLineIsExactlyWidthCells(t *testing.T) {
 	}
 }
 
-func TestTwoColumnsFromEightyOneColumnBelow(t *testing.T) {
-	// Default 50-cell meters pack two columns only once each can retain its
-	// 40-cell responsive floor.
-	wide := layout.Render(sample(), 110, opts(false))
+func TestTwoColumnsFromOneEighteenOneColumnBelow(t *testing.T) {
+	// Default 50-cell meters pack two columns only once each card's inner
+	// width can hold the 40-cell responsive floor: two 58-cell cards and a
+	// 2-cell gutter.
+	wide := layout.Render(sample(), 118, opts(false))
 	if !hasLineWith(wide, "◆ claude", "● codex") {
-		t.Error("at width 110 claude and codex do not share a header line")
+		t.Error("at width 118 claude and codex do not share a header line")
 	}
-	narrow := layout.Render(sample(), 109, opts(false))
+	narrow := layout.Render(sample(), 117, opts(false))
 	if hasLineWith(narrow, "◆ claude", "● codex") {
-		t.Error("at width 109 claude and codex share a header line, want one column")
+		t.Error("at width 117 claude and codex share a header line, want one column")
 	}
 	if !hasLineWith(narrow, "◆ claude") || !hasLineWith(narrow, "● codex") {
-		t.Error("at width 109 a section is missing")
+		t.Error("at width 117 a section is missing")
 	}
 }
 
@@ -149,16 +150,14 @@ func TestResponsiveMeterWidthBoundaries(t *testing.T) {
 	}{
 		{35, 0, 0},
 		{36, 1, 22},
-		{53, 1, 39},
-		{54, 1, 40},
-		{64, 1, 50},
-		{65, 1, 50},
-		{109, 1, 50},
-		{110, 2, 40},
-		{119, 2, 44},
-		{120, 2, 44},
-		{131, 2, 49},
-		{132, 2, 50},
+		{39, 1, 25},
+		{40, 1, 22},
+		{64, 1, 46},
+		{117, 1, 99},
+		{118, 2, 40},
+		{119, 2, 40},
+		{120, 2, 40},
+		{132, 2, 46},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("width_%d", tc.width), func(t *testing.T) {
@@ -193,93 +192,92 @@ func TestOneProviderAlwaysUsesTheFullColumn(t *testing.T) {
 	res := usage.Result{Windows: []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68},
 	}}
+	// The card's frame costs 4 cells and the percentage, countdown and
+	// their spaces 14, so the meter is the rest.
 	for _, width := range []int{80, 110} {
 		got := renderedGaugeWidths(layout.Render(res, width, opts(false)))
-		if len(got) != 1 || got[0] != 50 {
-			t.Errorf("width %d: gauge widths = %v, want [50]", width, got)
+		if len(got) != 1 || got[0] != width-18 {
+			t.Errorf("width %d: gauge widths = %v, want [%d]", width, got, width-18)
 		}
 	}
 }
 
-func TestCustomMeterTargetsUseTheirResponsivePackedFloor(t *testing.T) {
+func TestCustomMeterTargetsDecideTheColumnSplit(t *testing.T) {
+	// A target's responsive packed floor is 80% of it. Two columns need
+	// two cards whose inner width holds that floor, plus the gutter.
 	tests := []struct {
 		name      string
 		target    int
 		pageWidth int
-		wantGauge int
+		columns   int
 	}{
-		{"minimum endpoint", 22, 74, 22},
-		{"forty", 40, 110, 40},
-		{"seventy five growing", 75, 152, 60},
-		{"seventy five reached", 75, 182, 75},
-		{"maximum endpoint growing", 200, 352, 160},
-		{"maximum endpoint reached", 200, 432, 200},
+		{"minimum endpoint, one short", 22, 81, 1},
+		{"minimum endpoint", 22, 82, 2},
+		{"forty, one short", 40, 101, 1},
+		{"forty", 40, 102, 2},
+		{"seventy five, one short", 75, 159, 1},
+		{"seventy five", 75, 160, 2},
+		{"maximum endpoint, one short", 200, 359, 1},
+		{"maximum endpoint", 200, 360, 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			o := opts(false)
 			o.MeterWidth = tc.target
-			got := renderedGaugeWidths(layout.Render(sample(), tc.pageWidth, o))
-			if len(got) == 0 || got[0] != tc.wantGauge {
-				t.Fatalf("gauge widths = %v, want first %d", got, tc.wantGauge)
+			got := layout.Render(sample(), tc.pageWidth, o)
+			if two := hasLineWith(got, "◆ claude", "● codex"); two != (tc.columns == 2) {
+				t.Fatalf("two columns = %v, want %d columns", two, tc.columns)
 			}
 		})
 	}
 }
 
-func TestCappedWindowBlockIsCenteredAsAUnit(t *testing.T) {
+func TestWindowBlockFillsTheCard(t *testing.T) {
 	res := usage.Result{Windows: []provider.Window{
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68, RateLimited: true},
 	}}
-	got := layout.Render(res, 100, opts(false))
-	title := findLine(t, got, "▸ 5h")
-	bezel := findLine(t, got, "[RL]")
-	track := findLine(t, got, "68.0%")
-	scale := findLine(t, got, "100")
+	for _, width := range []int{100, 101} {
+		got := layout.Render(res, width, opts(false))
+		title := findLine(t, got, "▸ 5h")
+		bezel := findLine(t, got, "[RL]")
+		track := findLine(t, got, "68.0%")
+		scale := findLine(t, got, "100")
 
-	// A 50-cell gauge plus 14 cells of furniture is a 64-cell block. The
-	// 36 spare cells split evenly inside this 100-cell provider column.
-	if col := runeColumn(title, "▸"); col != 18 {
-		t.Errorf("title starts at column %d, want 18", col)
-	}
-	if col := runeColumn(bezel, "╭"); col != 25 {
-		t.Errorf("bezel starts at column %d, want 25", col)
-	}
-	if col := runeColumn(track, "6"); col != 19 {
-		t.Errorf("percentage starts at column %d, want 19", col)
-	}
-	if col := runeColumn(scale, "0"); col != 26 {
-		t.Errorf("scale starts at column %d, want 26", col)
-	}
-	if col := runeColumn(bezel, "[RL]"); col != 78 {
-		t.Errorf("badge starts at column %d, want 78", col)
-	}
-
-	odd := layout.Render(res, 101, opts(false))
-	oddTitle := findLine(t, odd, "▸ 5h")
-	oddBadge := findLine(t, odd, "[RL]")
-	if col := runeColumn(oddTitle, "▸"); col != 18 {
-		t.Errorf("odd-slack title starts at column %d, want 18", col)
-	}
-	if trailing := len([]rune(oddBadge)) - len([]rune(strings.TrimRight(oddBadge, " "))); trailing != 19 {
-		t.Errorf("odd-slack row has %d trailing cells, want 19 (the extra cell on the right)", trailing)
+		// The block starts right after the card's "│ " and ends right
+		// before its " │", whatever the page width: an odd page just
+		// makes a wider card.
+		if col := runeColumn(title, "▸"); col != 2 {
+			t.Errorf("width %d: title starts at column %d, want 2", width, col)
+		}
+		if col := runeColumn(bezel, "╭"); col != 9 {
+			t.Errorf("width %d: bezel starts at column %d, want 9", width, col)
+		}
+		if col := runeColumn(track, "6"); col != 3 {
+			t.Errorf("width %d: percentage starts at column %d, want 3", width, col)
+		}
+		if col := runeColumn(scale, "0"); col != 10 {
+			t.Errorf("width %d: scale starts at column %d, want 10", width, col)
+		}
+		if col := runeColumn(bezel, "[RL]"); col != width-6 {
+			t.Errorf("width %d: badge starts at column %d, want %d", width, col, width-6)
+		}
+		if !strings.HasSuffix(bezel, "[RL] │") {
+			t.Errorf("width %d: badge row does not end at the frame: %q", width, bezel)
+		}
 	}
 }
 
-func TestOddFinalProviderKeepsTheGridColumnGeometry(t *testing.T) {
+func TestLoneFinalProviderSpansThePage(t *testing.T) {
 	res := usage.Result{Windows: []provider.Window{
 		{Provider: "claude", Name: "5h", RemainingPercent: 50},
 		{Provider: "codex", Name: "weekly", RemainingPercent: 50},
 		{Provider: "cursor", Name: "monthly", RemainingPercent: 50},
 	}}
-	got := renderedGaugeWidths(layout.Render(res, 110, opts(false)))
-	if len(got) != 3 {
-		t.Fatalf("gauge widths = %v, want three", got)
-	}
-	for i, width := range got {
-		if width != 40 {
-			t.Errorf("gauge %d width = %d, want 40", i, width)
-		}
+	// Two 58-cell cards hold 40-cell meters; the lone card on the second
+	// row is the full 120 cells, so its meter is 102.
+	got := renderedGaugeWidths(layout.Render(res, 120, opts(false)))
+	if want := []int{40, 40, 102}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("gauge widths = %v, want %v", got, want)
 	}
 }
 
@@ -420,19 +418,20 @@ func TestLongWindowNameIsMiddleTruncated(t *testing.T) {
 		t.Errorf("middle truncation kept the wrong ends: %q", name)
 	}
 
-	// The sample's name and full badge fit without truncation at width 40.
-	whole := layout.Render(sample(), 40, opts(false))
+	// The sample's name and full badge fit without truncation once the
+	// card's inner width reaches 40, at page width 44.
+	whole := layout.Render(sample(), 44, opts(false))
 	if !hasLineWith(whole, "▸ GPT-5.3-Codex-Spark secondary [n/a]") {
 		t.Error("name was truncated despite room for its badge")
 	}
 }
 
 func TestRateLimitedBadgeSitsAtTheColumnEdge(t *testing.T) {
-	// One column, so the column edge is the page edge.
+	// One column, so the column edge is the card's right frame.
 	got := layout.Render(sample(), 40, opts(false))
 	line := findLine(t, got, "[RL]")
-	if !strings.HasSuffix(line, "[RL]") {
-		t.Errorf("the badge is not flush right: %q", line)
+	if !strings.HasSuffix(line, "[RL] │") {
+		t.Errorf("the badge is not flush against the frame: %q", line)
 	}
 	if runewidth.StringWidth(line) != 40 {
 		t.Errorf("badge line is %d cells, want 40: %q", runewidth.StringWidth(line), line)
@@ -445,44 +444,41 @@ func TestRateLimitedBadgeSitsAtTheColumnEdge(t *testing.T) {
 	}
 }
 
-func TestBlankLineAfterTheBannerOnlyFromOneTwenty(t *testing.T) {
-	for _, tc := range []struct {
-		width int
-		blank bool
-	}{{80, false}, {100, false}, {119, false}, {120, true}, {140, true}} {
-		got := layout.Render(sample(), tc.width, opts(true))
-		if isBlank := strings.TrimSpace(got[6]) == ""; isBlank != tc.blank {
-			t.Errorf("width %d: blank line after the banner = %v, want %v (line 7 is %q)",
-				tc.width, isBlank, tc.blank, got[6])
+func TestFirstCardFollowsTheBannerDirectly(t *testing.T) {
+	// The card frames do the separating, so there is no blank line under
+	// the banner at any width.
+	for _, width := range []int{80, 100, 119, 120, 140} {
+		got := layout.Render(sample(), width, opts(true))
+		if !strings.HasPrefix(got[6], "╭") {
+			t.Errorf("width %d: line 7 is not the first card's top: %q", width, got[6])
 		}
 	}
 }
 
-func TestBlankLineBetweenSectionRowsOnlyFromOneHundred(t *testing.T) {
-	for _, tc := range []struct {
-		width int
-		blank bool
-	}{{40, false}, {80, false}, {99, false}, {100, true}, {120, true}} {
-		got := layout.Render(sample(), tc.width, opts(false))
+func TestCardRowsTouch(t *testing.T) {
+	// Likewise between card rows: the previous row's bottom frame is
+	// directly above the next row's top.
+	for _, width := range []int{40, 80, 99, 100, 120} {
+		got := layout.Render(sample(), width, opts(false))
 		i := indexOfLineWith(got, "○ opencode-go")
 		if i <= 0 {
-			t.Fatalf("width %d: no opencode-go section header", tc.width)
+			t.Fatalf("width %d: no opencode-go card", width)
 		}
-		if isBlank := strings.TrimSpace(got[i-1]) == ""; isBlank != tc.blank {
-			t.Errorf("width %d: blank line before the second section row = %v, want %v (line %d is %q)",
-				tc.width, isBlank, tc.blank, i, got[i-1])
+		if !strings.HasPrefix(got[i-1], "╰") || !strings.HasPrefix(got[i], "╭") {
+			t.Errorf("width %d: lines %d and %d are not a bottom then a top frame: %q, %q",
+				width, i, i+1, got[i-1], got[i])
 		}
 	}
 }
 
 func TestSectionsFollowRegistryOrderRowMajor(t *testing.T) {
-	got := layout.Render(sample(), 110, opts(false))
+	got := layout.Render(sample(), 120, opts(false))
 	first := findLine(t, got, "◆ claude")
 	if !strings.Contains(first, "● codex") {
 		t.Errorf("the first section row is not claude then codex: %q", first)
 	}
 	second := findLine(t, got, "○ opencode-go")
-	if !strings.HasPrefix(strings.TrimLeft(second, " "), "─ ○ opencode-go") {
+	if !strings.HasPrefix(second, "╭─ ○ opencode-go") {
 		t.Errorf("opencode-go is not the left section of the second row: %q", second)
 	}
 	if !strings.Contains(second, "▲ cursor") {
@@ -556,7 +552,7 @@ func TestProviderOutsideTheRegistryIsStillDrawn(t *testing.T) {
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 50, ResetsAt: now.Add(time.Hour)},
 		{Provider: "newcomer", Name: "monthly", Plan: "pro", RemainingPercent: 10, ResetsAt: now.Add(time.Hour)},
 	}}
-	got := layout.Render(res, 110, opts(false))
+	got := layout.Render(res, 120, opts(false))
 	if !hasLineWith(got, "newcomer") {
 		t.Fatalf("a provider the layout has no icon for was dropped:\n%s", strings.Join(got, "\n"))
 	}
@@ -908,9 +904,14 @@ func TestVerticalStretchesMetersInOneColumn(t *testing.T) {
 					if len(widths) != 8 {
 						t.Fatalf("gauge count = %d, want 8", len(widths))
 					}
+					// Framed from 40 cells up, unframed compact sections below.
+					want := width - 18
+					if width < 40 {
+						want = width - 14
+					}
 					for _, got := range widths {
-						if got != width-14 {
-							t.Fatalf("gauge width = %d, want %d", got, width-14)
+						if got != want {
+							t.Fatalf("gauge width = %d, want %d", got, want)
 						}
 					}
 					next := 0

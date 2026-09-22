@@ -43,51 +43,46 @@ func viewLine(t *testing.T, lines []string, text string) string {
 }
 func TestTimelineCardsOrderAndFit(t *testing.T) {
 	plainViews(t)
-	for _, fit := range []bool{false, true} {
-		for _, capacity := range []int{0, 3, 20, 21, 35} {
-			o := Options{Now: viewNow, Fit: fit, BodyHeight: capacity}
-			r := viewResult()
-			before := append([]provider.Window(nil), r.Windows...)
-			body := RenderTimeline(r, 120, o)[1:]
-			// Four claude rows, one codex row and one cursor row: card heights 6,3,3.
-			extra := 0
-			if fit {
-				extra = max(0, capacity-14)
+	for _, capacity := range []int{0, 3, 20, 21, 35} {
+		o := Options{Now: viewNow, BodyHeight: capacity}
+		r := viewResult()
+		before := append([]provider.Window(nil), r.Windows...)
+		body := RenderTimeline(r, 120, o)[1:]
+		// Four claude rows, one codex row and one cursor row: card heights 6,3,3.
+		extra := max(0, capacity-14)
+		if len(body) != 14+extra {
+			t.Fatalf("capacity %d height %d want %d", capacity, len(body), 14+extra)
+		}
+		offset := 2
+		for i, tc := range []struct {
+			id, plan string
+			content  []string
+		}{{"claude", "max", []string{"early", "late", "unknown", "error: offline"}}, {"codex", "pro", []string{"codex-window"}}, {"cursor", "-", []string{"not detected: missing"}}} {
+			h := len(tc.content) + 2 + extra/3
+			if i < extra%3 {
+				h++
 			}
-			if len(body) != 14+extra {
-				t.Fatalf("fit %t capacity %d height %d want %d", fit, capacity, len(body), 14+extra)
+			if !strings.HasPrefix(body[offset], "╭─ ") || !strings.Contains(body[offset], tc.id) || !strings.HasSuffix(body[offset], " "+tc.plan+" ─╮") {
+				t.Fatalf("wrong card top %q", body[offset])
 			}
-			offset := 2
-			for i, tc := range []struct {
-				id, plan string
-				content  []string
-			}{{"claude", "max", []string{"early", "late", "unknown", "error: offline"}}, {"codex", "pro", []string{"codex-window"}}, {"cursor", "-", []string{"not detected: missing"}}} {
-				h := len(tc.content) + 2 + extra/3
-				if i < extra%3 {
-					h++
-				}
-				if !strings.HasPrefix(body[offset], "╭─ ") || !strings.Contains(body[offset], tc.id) || !strings.HasSuffix(body[offset], " "+tc.plan+" ─╮") {
-					t.Fatalf("wrong card top %q", body[offset])
-				}
-				if body[offset+h-1] != "╰"+strings.Repeat("─", 118)+"╯" {
-					t.Fatal("wrong bottom")
-				}
-				start := offset + 1 + (h-2-len(tc.content))/2
-				for j, text := range tc.content {
-					if !strings.Contains(body[start+j], text) {
-						t.Fatalf("packed/centred row %d lacks %s", start+j, text)
-					}
-				}
-				for y := offset + 1; y < offset+h-1; y++ {
-					if !strings.HasPrefix(body[y], "│ ") || !strings.HasSuffix(body[y], " │") {
-						t.Fatal("missing sides")
-					}
-				}
-				offset += h
+			if body[offset+h-1] != "╰"+strings.Repeat("─", 118)+"╯" {
+				t.Fatal("wrong bottom")
 			}
-			if !reflect.DeepEqual(r.Windows, before) {
-				t.Fatal("mutated windows")
+			start := offset + 1 + (h-2-len(tc.content))/2
+			for j, text := range tc.content {
+				if !strings.Contains(body[start+j], text) {
+					t.Fatalf("packed/centred row %d lacks %s", start+j, text)
+				}
 			}
+			for y := offset + 1; y < offset+h-1; y++ {
+				if !strings.HasPrefix(body[y], "│ ") || !strings.HasSuffix(body[y], " │") {
+					t.Fatal("missing sides")
+				}
+			}
+			offset += h
+		}
+		if !reflect.DeepEqual(r.Windows, before) {
+			t.Fatal("mutated windows")
 		}
 	}
 }
@@ -102,7 +97,7 @@ func TestTimelineAxisAndLocalRuler(t *testing.T) {
 			cell   int
 		}{{"due", -time.Hour, "◆", 0}, {"round", 12 * time.Hour, "◆", int(float64(ax-1)/14 + 0.5)}, {"seven", 7 * 24 * time.Hour, "◆", ax - 1}, {"beyond", 8 * 24 * time.Hour, "▸", ax - 1}} {
 			r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: tc.name, RemainingPercent: 68, ResetsAt: viewNow.Add(tc.d)}}}
-			body := RenderTimeline(r, width, Options{Now: viewNow, Fit: true, BodyHeight: 9})[1:]
+			body := RenderTimeline(r, width, Options{Now: viewNow, BodyHeight: 9})[1:]
 			line := []rune(viewLine(t, body, "▸ "+tc.name))
 			axis := string(line[37 : 37+ax])
 			cells := []rune(axis)
@@ -165,25 +160,23 @@ func TestTimelineAxisAndLocalRuler(t *testing.T) {
 func TestTimelineFallbackAndEmpty(t *testing.T) {
 	plainViews(t)
 	for _, width := range []int{1, 20, 36, 69} {
-		for _, fit := range []bool{false, true} {
-			r := viewResult()
-			got := RenderTimeline(r, width, Options{Now: viewNow, Fit: fit, BodyHeight: 35})[1:]
-			want := resets.Rows(r, viewNow, width, lipgloss.DefaultRenderer(), display.Default())
-			if len(got) != len(want) {
-				t.Fatalf("fallback row count %d != %d", len(got), len(want))
-			}
-			for i, line := range want {
-				line = ansi.Truncate(line, width, "")
-				line += strings.Repeat(" ", width-ansi.StringWidth(line))
-				if got[i] != line {
-					t.Errorf("fallback changed width %d", width)
-				}
+		r := viewResult()
+		got := RenderTimeline(r, width, Options{Now: viewNow, BodyHeight: 35})[1:]
+		want := resets.Rows(r, viewNow, width, lipgloss.DefaultRenderer(), display.Default())
+		if len(got) != len(want) {
+			t.Fatalf("fallback row count %d != %d", len(got), len(want))
+		}
+		for i, line := range want {
+			line = ansi.Truncate(line, width, "")
+			line += strings.Repeat(" ", width-ansi.StringWidth(line))
+			if got[i] != line {
+				t.Errorf("fallback changed width %d", width)
 			}
 		}
 	}
 	for _, width := range []int{69, 70, 120} {
 		r := usage.Result{Balances: []provider.Balance{{Provider: "claude", Name: "credits"}}}
-		got := RenderTimeline(r, width, Options{Now: viewNow, Fit: true, BodyHeight: 35})
+		got := RenderTimeline(r, width, Options{Now: viewNow, BodyHeight: 35})
 		if len(got) != 2 || strings.TrimSpace(got[1]) != "no providers detected" {
 			t.Fatalf("empty/balance-only: %q", got)
 		}
@@ -193,7 +186,7 @@ func TestTimelineStylesAndWidths(t *testing.T) {
 	old := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
-	o := Options{Now: viewNow, Fit: true, BodyHeight: 35}
+	o := Options{Now: viewNow, BodyHeight: 35}
 	r := viewResult()
 	for width := 70; width <= 150; width++ {
 		lines := RenderTimeline(r, width, o)
@@ -210,8 +203,8 @@ func TestTimelineStylesAndWidths(t *testing.T) {
 			t.Errorf("missing style %q", s)
 		}
 	}
-	// The main Fit card and timeline use byte-identical styled borders.
-	main := Render(r, 120, Options{Now: viewNow, Fit: true, Vertical: true})
+	// The main card and timeline use byte-identical styled borders.
+	main := Render(r, 120, Options{Now: viewNow, Vertical: true})
 	if viewLine(t, main, "◆ claude") != viewLine(t, strings.Split(page, "\n"), "◆ claude") {
 		t.Fatal("frame styles diverged")
 	}
@@ -220,24 +213,16 @@ func TestTimelineStylesAndWidths(t *testing.T) {
 func TestTimelineStatusOnlyAndBalanceProviders(t *testing.T) {
 	plainViews(t)
 	r := usage.Result{Balances: []provider.Balance{{Provider: "claude", Name: "ignored"}}, Errors: []usage.ProviderError{{Provider: "codex", Message: "offline"}}, Undetected: []usage.ProviderError{{Provider: "cursor", Message: "missing"}}}
-	for _, fit := range []bool{false, true} {
-		got := RenderTimeline(r, 120, Options{Now: viewNow, Fit: fit, BodyHeight: 15})[1:]
-		height := 8
-		second := 5
-		firstAt := 3
-		secondAt := 6
-		if fit {
-			height = 15
-			second = 9
-			firstAt = 5
-			secondAt = 11
-		}
-		if len(got) != height || !strings.Contains(got[2], "● codex") || !strings.Contains(got[second], "▲ cursor") || !strings.Contains(got[firstAt], "error: offline") || !strings.Contains(got[secondAt], "not detected: missing") {
-			t.Fatalf("status-only geometry: %q", got)
-		}
-		if strings.Contains(strings.Join(got, "\n"), "claude") {
-			t.Fatal("balance-only provider leaked into timeline")
-		}
+	got := RenderTimeline(r, 120, Options{Now: viewNow, BodyHeight: 15})[1:]
+	height := 15
+	second := 9
+	firstAt := 5
+	secondAt := 11
+	if len(got) != height || !strings.Contains(got[2], "● codex") || !strings.Contains(got[second], "▲ cursor") || !strings.Contains(got[firstAt], "error: offline") || !strings.Contains(got[secondAt], "not detected: missing") {
+		t.Fatalf("status-only geometry: %q", got)
+	}
+	if strings.Contains(strings.Join(got, "\n"), "claude") {
+		t.Fatal("balance-only provider leaked into timeline")
 	}
 }
 

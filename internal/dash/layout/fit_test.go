@@ -22,7 +22,6 @@ func TestFitWidthAndColumnSelection(t *testing.T) {
 					o := opts(false)
 					o.MeterWidth = target
 					o.Vertical = vertical
-					o.Fit = true
 					o.BodyHeight = 100
 					preference := target
 					if preference == 0 {
@@ -83,7 +82,6 @@ func fitResult() usage.Result {
 func TestFitCardsPackedCenteredAndTiled(t *testing.T) {
 	for _, capacity := range []int{0, 3, 16, 17, 21, 22, 45} {
 		o := opts(false)
-		o.Fit = true
 		o.BodyHeight = capacity
 		got := layout.Render(fitResult(), 120, o)[1:]
 		extra := max(0, capacity-16)
@@ -136,7 +134,6 @@ func TestFitCardsPackedCenteredAndTiled(t *testing.T) {
 func TestFitBalancesAndStatusesArePacked(t *testing.T) {
 	r := usage.Result{Windows: fitResult().Windows[:2], Balances: []provider.Balance{{Provider: "claude", Name: "credits"}, {Provider: "claude", Name: "bonus"}}, Errors: []usage.ProviderError{{Provider: "claude", Message: "offline"}}, Undetected: []usage.ProviderError{{Provider: "codex", Message: "missing"}}}
 	o := opts(false)
-	o.Fit = true
 	o.BodyHeight = 18
 	got := layout.Render(r, 120, o)[1:]
 	for text, want := range map[string]int{"▸ first": 3, "▸ second": 7, "credits": 11, "bonus": 12, "error: offline": 13, "not detected: missing": 8} {
@@ -152,7 +149,6 @@ func TestFitNarrowFallbackOuterSlots(t *testing.T) {
 			o := opts(false)
 			o.MeterWidth = width - 14
 			compact := layout.Render(fitResult(), width, o)[1:]
-			o.Fit = true
 			o.BodyHeight = len(compact) + spare
 			got := layout.Render(fitResult(), width, o)[1:]
 			var want []string
@@ -177,7 +173,6 @@ func TestFitNarrowFallbackOuterSlots(t *testing.T) {
 
 func TestFitBannerAndSingleton(t *testing.T) {
 	o := opts(true)
-	o.Fit = true
 	o.BodyHeight = 12
 	got := layout.Render(usage.Result{Windows: fitResult().Windows[:1]}, 120, o)
 	if len(got) != 18 || !strings.HasPrefix(got[6], "╭─ ◆ claude") || indexOfLineWith(got, "▸ first") != 10 {
@@ -204,7 +199,6 @@ func TestFitCardProviderStyles(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 	o := opts(false)
-	o.Fit = true
 	r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", Plan: "max"}}}
 	got := layout.Render(r, 40, o)[1:]
 	rule := lipgloss.NewStyle().Foreground(o.Theme.Accent("claude")).Faint(true)
@@ -235,7 +229,7 @@ func TestFitNarrowFallbackOverflow(t *testing.T) {
 				o := opts(false)
 				o.MeterWidth = width - 14
 				want := layout.Render(fitResult(), width, o)
-				o.Fit, o.BodyHeight = true, capacity
+				o.BodyHeight = capacity
 				got := layout.Render(fitResult(), width, o)
 				if strings.Join(got, "\n") != strings.Join(want, "\n") {
 					t.Fatalf("overflow must preserve compact unframed sections:\n%s", strings.Join(got, "\n"))
@@ -252,19 +246,13 @@ func TestFitCardPlanMatchesFirstWindowHeading(t *testing.T) {
 				{Provider: "claude", Name: "first", Plan: first},
 				{Provider: "claude", Name: "second", Plan: "pro"},
 			}}
-			o := opts(false)
-			heading := layout.Render(r, 78, o)[1]
 			plan := first
 			if plan == "" {
 				plan = "-"
 			}
-			if !strings.HasSuffix(heading, " "+plan+" ─") {
-				t.Fatalf("non-Fit heading must use first window plan: %q", heading)
-			}
-			o.Fit = true
-			border := layout.Render(r, 80, o)[1]
-			if want := "╭" + heading + "╮"; border != want {
-				t.Fatalf("Fit border = %q, want %q", border, want)
+			border := layout.Render(r, 80, opts(false))[1]
+			if !strings.HasPrefix(border, "╭─ ◆ claude ") || !strings.HasSuffix(border, " "+plan+" ─╮") {
+				t.Fatalf("card heading must use the first window's plan: %q", border)
 			}
 		})
 	}
@@ -282,7 +270,7 @@ func TestFitCardsWithoutWindows(t *testing.T) {
 		for _, capacity := range []int{0, 3, 8, 9} {
 			t.Run(fmt.Sprintf("%s/capacity%d", tc.name, capacity), func(t *testing.T) {
 				o := opts(false)
-				o.Fit, o.BodyHeight = true, capacity
+				o.BodyHeight = capacity
 				got := layout.Render(tc.result, 80, o)[1:]
 				height := max(3, capacity)
 				if len(got) != height {

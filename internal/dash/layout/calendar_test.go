@@ -108,41 +108,29 @@ func TestCalendarLocalDaysEntriesAndStrip(t *testing.T) {
 func TestCalendarFitHeightAndEmpty(t *testing.T) {
 	plainViews(t)
 	for _, capacity := range []int{0, 1, 18, 19, 20, 35} {
-		for _, fit := range []bool{false, true} {
-			got := RenderCalendar(calendarResult(), 120, Options{Now: viewNow, Fit: fit, BodyHeight: capacity})[1:]
-			// Header 2, busiest day 12, strip rule + four rows = 5.
-			height := 19
-			if fit {
-				height = max(height, capacity)
-			}
-			if len(got) != height {
-				t.Fatalf("fit %t capacity %d height %d want %d", fit, capacity, len(got), height)
-			}
-			if got[height-5] != strings.Repeat("─", 120) {
-				t.Fatal("strip not at bottom")
-			}
-			for y := 2; y < height-5; y++ {
-				for col := 1; col < 8; col++ {
-					if []rune(got[y])[col*15-1] != '│' {
-						t.Fatalf("separator missing row %d col %d", y, col)
-					}
+		got := RenderCalendar(calendarResult(), 120, Options{Now: viewNow, BodyHeight: capacity})[1:]
+		// Header 2, busiest day 12, strip rule + four rows = 5.
+		height := max(19, capacity)
+		if len(got) != height {
+			t.Fatalf("capacity %d height %d want %d", capacity, len(got), height)
+		}
+		if got[height-5] != strings.Repeat("─", 120) {
+			t.Fatal("strip not at bottom")
+		}
+		for y := 2; y < height-5; y++ {
+			for col := 1; col < 8; col++ {
+				if []rune(got[y])[col*15-1] != '│' {
+					t.Fatalf("separator missing row %d col %d", y, col)
 				}
 			}
 		}
 	}
 	one := usage.Result{Windows: calendarResult().Windows[2:3]}
-	for _, fit := range []bool{false, true} {
-		got := RenderCalendar(one, 80, Options{Now: viewNow, Fit: fit, BodyHeight: 20})[1:]
-		want := 6
-		if fit {
-			want = 20
-		}
-		if len(got) != want || strings.Contains(strings.Join(got[2:], ""), "─") {
-			t.Fatal("unneeded strip or wrong grid height")
-		}
+	if got := RenderCalendar(one, 80, Options{Now: viewNow, BodyHeight: 20})[1:]; len(got) != 20 || strings.Contains(strings.Join(got[2:], ""), "─") {
+		t.Fatal("unneeded strip or wrong grid height")
 	}
 	for _, width := range []int{0, 1, 35, 36, 120} {
-		got := RenderCalendar(usage.Result{}, width, Options{Now: viewNow, Fit: true, BodyHeight: 35})
+		got := RenderCalendar(usage.Result{}, width, Options{Now: viewNow, BodyHeight: 35})
 		switch {
 		case width == 0:
 			if len(got) != 0 {
@@ -159,7 +147,7 @@ func TestCalendarFitHeightAndEmpty(t *testing.T) {
 		}
 	}
 	statuses := usage.Result{Errors: []usage.ProviderError{{Provider: "cursor", Message: "offline"}}}
-	got := RenderCalendar(statuses, 80, Options{Now: viewNow, Fit: true, BodyHeight: 20})[1:]
+	got := RenderCalendar(statuses, 80, Options{Now: viewNow, BodyHeight: 20})[1:]
 	if len(got) != 20 || !strings.Contains(got[19], "error: offline") {
 		t.Fatal("status-only strip placement")
 	}
@@ -172,11 +160,9 @@ func TestCalendarStylesTruncationAndWidths(t *testing.T) {
 	r.Windows[0].Name = strings.Repeat("界", 20) + "tail"
 	r.Errors[0].Message = strings.Repeat("界", 100)
 	for width := 36; width <= 150; width++ {
-		for _, fit := range []bool{false, true} {
-			for _, line := range RenderCalendar(r, width, Options{Now: viewNow, Fit: fit, BodyHeight: 35}) {
-				if ansi.StringWidth(line) != width {
-					t.Fatalf("width %d: %q", width, line)
-				}
+		for _, line := range RenderCalendar(r, width, Options{Now: viewNow, BodyHeight: 35}) {
+			if ansi.StringWidth(line) != width {
+				t.Fatalf("width %d: %q", width, line)
 			}
 		}
 	}

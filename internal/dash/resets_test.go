@@ -161,7 +161,7 @@ func TestCalendarViewportAndBothHints(t *testing.T) {
 
 func TestCalendarFitAndLoadingHints(t *testing.T) {
 	for _, banner := range []bool{false, true} {
-		m := New(Options{Fit: true, Banner: banner, Now: func() time.Time { return now }})
+		m := New(Options{Banner: banner, Now: func() time.Time { return now }})
 		m = resize(t, m, 120, 60)
 		m, _ = step(t, m, resultMsg{sample()})
 		m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
