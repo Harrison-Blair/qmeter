@@ -25,7 +25,7 @@ func RenderTimeline(result usage.Result, width int, o Options) []string {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	rows := pageHeader(result, width, o)
+	rows := header(result, width, o.Banner, o.Theme)
 	if width < resets.MinWidth {
 		for _, line := range resets.Rows(result, now, width, lipgloss.DefaultRenderer(), o.Theme) {
 			line = ansi.Truncate(line, width, "")
@@ -71,10 +71,7 @@ func RenderTimeline(result usage.Result, width int, o Options) []string {
 		}
 		compact += len(contents[i]) + 2
 	}
-	extra := 0
-	if o.Fit {
-		extra = max(0, o.BodyHeight-compact)
-	}
+	extra := max(0, o.BodyHeight-compact)
 	for i, p := range providers {
 		content := contents[i]
 		height := len(content) + 2 + share(extra, len(providers), i)

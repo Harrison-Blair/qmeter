@@ -37,12 +37,11 @@ func TestRunOptionsReachModelOptions(t *testing.T) {
 		Providers:       []provider.Provider{p},
 		Banner:          true,
 		Vertical:        true,
-		Fit:             true,
 		Theme:           th,
 		MeterWidth:      83,
 		RefreshInterval: 17 * time.Second,
 	})
-	if got.Ctx != ctx || !got.Banner || !got.Vertical || !got.Fit || len(got.Providers) != 1 || got.Providers[0] != p {
+	if got.Ctx != ctx || !got.Banner || !got.Vertical || len(got.Providers) != 1 || got.Providers[0] != p {
 		t.Errorf("model options lost run state: %#v", got)
 	}
 	if got.Theme != th || got.MeterWidth != 83 {

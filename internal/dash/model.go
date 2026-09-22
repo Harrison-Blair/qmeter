@@ -93,19 +93,16 @@ type Options struct {
 	// header is the one-line summary.
 	Banner bool
 
-	// Vertical uses one full-width provider column and stretches gauges to fit.
+	// Vertical uses one full-width provider column.
 	Vertical bool
-
-	// Fit stretches content to the available width and distributes spare body rows.
-	Fit bool
 
 	// Theme is the provider identity palette. The zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default. Fit uses it for column selection, then stretches meters;
-	// Vertical overrides it with one full-width column.
+	// dashboard default. It decides when two columns fit; meters then
+	// stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
 	// RefreshInterval is the delay after each completed fetch before the
@@ -129,7 +126,6 @@ type Model struct {
 	providers         []provider.Provider
 	banner            bool
 	vertical          bool
-	fit               bool
 	timeline          bool
 	calendar          bool
 	theme             theme.Theme
@@ -173,7 +169,6 @@ func New(o Options) Model {
 		providers:       o.Providers,
 		banner:          o.Banner,
 		vertical:        o.Vertical,
-		fit:             o.Fit,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
 		refreshInterval: o.RefreshInterval,
@@ -374,7 +369,6 @@ func (m Model) frame() (header, body []string, fits int) {
 	page := draw(m.res, m.width, layout.Options{
 		Banner:     m.banner,
 		Vertical:   m.vertical,
-		Fit:        m.fit,
 		BodyHeight: max(0, m.height-pinned-1),
 		Now:        m.now(),
 		Theme:      m.theme,

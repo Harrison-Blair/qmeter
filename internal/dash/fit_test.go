@@ -13,7 +13,7 @@ import (
 
 func TestFitModelViewportAndReflow(t *testing.T) {
 	for _, banner := range []bool{false, true} {
-		m := New(Options{Fit: true, Banner: banner, Now: func() time.Time { return now }})
+		m := New(Options{Banner: banner, Now: func() time.Time { return now }})
 		m = resize(t, m, 120, 12)
 		m, _ = step(t, m, resultMsg{sample()})
 		m, _ = step(t, m, tea.KeyMsg{Type: tea.KeyEnd})
@@ -60,7 +60,7 @@ func TestFitModelViewportAndReflow(t *testing.T) {
 }
 
 func TestFitLoadingAndEmptyStayAtTop(t *testing.T) {
-	m := New(Options{Fit: true, Banner: true})
+	m := New(Options{Banner: true})
 	m = resize(t, m, 120, 40)
 	_, body, _ := m.frame()
 	if len(body) != 1 || !strings.Contains(body[0], fetchingLabel) {

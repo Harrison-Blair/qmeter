@@ -7,23 +7,26 @@
 // the page is scrolled to.
 //
 // The page is a header (the FIGlet banner, or a one-line summary) over a
-// grid of provider sections: up to two columns when each meter can retain its
-// responsive packed floor, one column below. Each section is a rule with the
-// provider's name and plan, then four rows per usage window — the window's
-// name, the gauge bezel, the gauge itself between the percentage and the
-// countdown, and the scale:
+// grid of framed provider cards: up to two columns when each card's inner
+// width can hold the meter's responsive packed floor, one column below. A
+// card's top frame carries the provider's name and plan, then four rows per
+// usage window — the window's name, the gauge bezel, the gauge itself
+// between the percentage and the countdown, and the scale:
 //
-//	─ ◆ claude ────────────────────── max ─
-//	▸ 5h [on pace]
-//	       ╭┬────┬─────┬───▼┬─────┬╮
-//	 68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m
-//	        0         50        100
+//	╭─ ◆ claude ──────────────────── max ─╮
+//	│ ▸ 5h [on pace]                      │
+//	│        ╭┬────┬─────┬───▼┬─────┬╮     │
+//	│  68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m │
+//	│         0         50        100      │
+//	╰─────────────────────────────────────╯
 //
 // Column arithmetic is fixed at every width: percentage 6, a space, the
-// gauge, a space, countdown 6. A gauge grows toward the configured preference
-// and is centred with those fields as one block. Vertical mode uses one full-width
-// column and stretches the gauge to fill it. Below a 36-cell terminal (a
-// 20-cell track) the layout says so and draws nothing.
+// gauge, a space, countdown 6. The gauge fills the card's inner width, the
+// card's rows are packed and centred vertically, and spare body rows are
+// shared equally between card rows. Vertical mode uses one full-width
+// column. Below 40 cells a card cannot hold a gauge, so compact unframed
+// sections are drawn instead; below 36 (a 20-cell track) the layout says so
+// and draws nothing.
 package layout
 
 import (
@@ -56,11 +59,9 @@ const (
 	DefaultMeterWidth = 50
 )
 
-// Width thresholds, in terminal cells.
-const (
-	sectionGapMin = 100 // a blank line between section rows from here up
-	wideGutterMin = 120 // a 4-cell gutter, and a blank line under the banner, from here up
-)
+// wideGutterMin is the width, in terminal cells, from which the gutter
+// between two columns is 4 cells rather than 2.
+const wideGutterMin = 120
 
 // Options are the page-level choices the caller makes.
 type Options struct {
@@ -69,13 +70,11 @@ type Options struct {
 	// is drawn regardless.
 	Banner bool
 
-	// Vertical uses one full-width provider column and stretches gauges to fit.
+	// Vertical uses one full-width provider column.
 	Vertical bool
 
-	// Fit stretches content to the available width and distributes spare body rows.
-	Fit bool
-
-	// BodyHeight is the capacity below the pinned header and above the footer.
+	// BodyHeight is the capacity below the pinned header and above the
+	// footer. Spare rows are shared between card rows; zero packs them.
 	BodyHeight int
 
 	// Now is the instant countdowns are measured from. The zero value
@@ -87,9 +86,8 @@ type Options struct {
 	Theme theme.Theme
 
 	// MeterWidth is the preferred complete gauge width, caps included. Zero
-	// uses DefaultMeterWidth. It may shrink to gauge.MinWidth when the
-	// terminal cannot fit the preference. Fit uses it for column selection, then
-	// stretches meters; Vertical overrides it with one full-width column.
+	// uses DefaultMeterWidth. It only decides when two columns fit: meters
+	// then stretch to their card. Vertical always uses one column.
 	MeterWidth int
 }
 
@@ -136,7 +134,7 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	target := meterTarget(o.MeterWidth)
-	rows := pageHeader(r, width, o)
+	rows := header(r, width, o.Banner, o.Theme)
 
 	present := presentProviders(r, o.Theme)
 	if len(present) == 0 {
@@ -145,29 +143,15 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	cols, colw, gutter := columns(width, len(present), target)
-	if o.Fit && cols == 2 && colw-4 < max(gauge.MinWidth, (target*4+4)/5)+pctWidth+1+1+cdWidth {
+	// The card frames cost 4 cells a column, so two columns must still
+	// leave each meter its packed floor once the frames are paid for.
+	if cols == 2 && colw-4 < max(gauge.MinWidth, (target*4+4)/5)+pctWidth+1+1+cdWidth {
 		cols, colw, gutter = 1, width, 0
 	}
 	if o.Vertical {
 		cols, colw, gutter = 1, width, 0
 	}
-	if o.Vertical || o.Fit {
-		target = colw - (pctWidth + 1 + 1 + cdWidth)
-	}
-	if o.Fit {
-		return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight)...), width)
-	}
-	for i := 0; i < len(present); i += cols {
-		if i > 0 && width >= sectionGapMin {
-			rows = append(rows, row{})
-		}
-		end := i + cols
-		if end > len(present) {
-			end = len(present)
-		}
-		rows = append(rows, sectionRow(r, present[i:end], colw, gutter, now, target)...)
-	}
-	return finish(rows, width)
+	return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight)...), width)
 }
 
 // columns is the page's column arithmetic: two columns only when there are at
@@ -194,12 +178,9 @@ func header(r usage.Result, width int, want bool, th theme.Theme) []row {
 	if !want || width < banner.Width {
 		return []row{summary(r, width)}
 	}
-	rows := make([]row, 0, banner.Height+1)
+	rows := make([]row, 0, banner.Height)
 	for _, art := range banner.Rows() {
 		rows = append(rows, bannerRow(art, th))
-	}
-	if width >= wideGutterMin {
-		rows = append(rows, row{})
 	}
 	return rows
 }

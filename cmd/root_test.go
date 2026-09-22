@@ -79,7 +79,7 @@ func TestRoot_RunsTheDashboardWithItsOwnFlags(t *testing.T) {
 	if root.RunE == nil {
 		t.Error("the root command has no behaviour of its own")
 	}
-	for _, name := range []string{"filter", "no-banner", "vertical", "fit"} {
+	for _, name := range []string{"filter", "no-banner", "vertical"} {
 		if f := root.Flags().Lookup(name); f == nil {
 			t.Errorf("root has no --%s flag", name)
 		}
@@ -92,7 +92,7 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(--help): %v", err)
 	}
-	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--fit", "--json"} {
+	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help does not mention %q:\n%s", want, out.String())
 		}
@@ -111,14 +111,16 @@ func TestExecuteWithArgs_UnknownCommandStillFails(t *testing.T) {
 	}
 }
 
-func TestFitIsRootOnly(t *testing.T) {
-	for _, name := range []string{"usage", "pace", "resets", "spend", "version", "update"} {
+func TestFitFlagIsGone(t *testing.T) {
+	// Framed cards that fill the page are the only dashboard layout, so
+	// neither root nor any subcommand accepts a --fit flag.
+	for _, args := range [][]string{{"--fit"}, {"--no-fit"}, {"usage", "--fit"}, {"resets", "--fit"}} {
 		root := NewRootCmd()
-		root.SetArgs([]string{name, "--fit"})
+		root.SetArgs(args)
 		root.SetOut(&bytes.Buffer{})
 		root.SetErr(&bytes.Buffer{})
-		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: --fit") {
-			t.Fatalf("%s accepted root-only fit flag: %v", name, err)
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: "+args[len(args)-1]) {
+			t.Fatalf("%v accepted a fit flag: %v", args, err)
 		}
 	}
 }

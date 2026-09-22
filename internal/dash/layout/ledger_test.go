@@ -50,8 +50,14 @@ func TestLedgerRowsFollowWindowsAndBalanceOrder(t *testing.T) {
 			}
 			codex := ledgerLineIndex(t, lines, "● codex")
 			credits := ledgerLineIndex(t, lines, "credits  3.5 of -")
-			if credits != codex+1 {
-				t.Errorf("balance-only section: header=%d balance=%d", codex, credits)
+			// Alone in its row the one-line card holds the balance directly
+			// under its top; beside claude's six content rows it is centred.
+			want := codex + 1
+			if hasLineWith(lines, "◆ claude", "● codex") {
+				want = codex + 3
+			}
+			if credits != want {
+				t.Errorf("balance-only section: header=%d balance=%d, want %d", codex, credits, want)
 			}
 			cursor := ledgerLineIndex(t, lines, "cursor")
 			included := ledgerLineIndex(t, lines, "included  0 of 0")
