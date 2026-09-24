@@ -1,7 +1,12 @@
 // Package opencodego reads OpenCode Zen "go" plan usage limits.
 //
 // Credentials come from the QMETER_OPENCODE_GO_KEY override or from
-// OpenCode's own auth store; qmeter only ever reads them.
+// OpenCode's own local credential storage; qmeter only ever reads it. Which
+// storage that is has changed across OpenCode versions: 2.x keeps it in a
+// SQLite database (opencode.db), while older releases wrote a plain
+// auth.json. This package tries the database first and falls back to
+// auth.json, so it works against either — see loadCredential in
+// credentials.go for the exact resolution order and error handling.
 package opencodego
 
 import (
@@ -44,19 +49,29 @@ const (
 // Provider reads OpenCode Go usage. The zero value is not usable; call New.
 type Provider struct {
 	credentialPath string
+	dbPath         string
 	baseURL        string
 	httpClient     *http.Client
 }
 
 var _ provider.Provider = (*Provider)(nil)
 
-// Option configures a Provider. Every seam a test needs to replace — the
-// credential file, the endpoint, and the HTTP client — is one of these.
+// Option configures a Provider. Every seam a test needs to replace — the two
+// credential stores, the endpoint, and the HTTP client — is one of these.
 type Option func(*Provider)
 
-// WithCredentialPath overrides the path of OpenCode's auth store.
+// WithCredentialPath overrides the path of OpenCode's auth.json store.
 func WithCredentialPath(path string) Option {
 	return func(p *Provider) { p.credentialPath = path }
+}
+
+// WithDBPath overrides the path of OpenCode's SQLite (opencode.db)
+// credential database. Tests that only set WithCredentialPath must also set
+// this — otherwise the Provider still defaults to the real
+// ~/.local/share/opencode/opencode.db, which loadCredential prefers over
+// whatever auth.json fixture the test intended to exercise.
+func WithDBPath(path string) Option {
+	return func(p *Provider) { p.dbPath = path }
 }
 
 // WithBaseURL overrides the scheme-and-host the usage path is appended to, so
@@ -70,11 +85,12 @@ func WithHTTPClient(c *http.Client) Option {
 	return func(p *Provider) { p.httpClient = c }
 }
 
-// New returns a Provider reading the real OpenCode auth store and the real
-// endpoint unless an Option says otherwise.
+// New returns a Provider reading the real OpenCode credential stores and the
+// real endpoint unless an Option says otherwise.
 func New(opts ...Option) *Provider {
 	p := &Provider{
 		credentialPath: defaultCredentialPath(),
+		dbPath:         defaultDBPath(),
 		baseURL:        defaultBaseURL,
 	}
 	for _, opt := range opts {
@@ -92,7 +108,8 @@ func (p *Provider) usageURL() string {
 }
 
 // Detect reports whether a credential is resolvable without any network I/O:
-// the env override is set, or the auth store exists and parses. The reason is
+// the env override is set, or one of the local credential stores (opencode.db
+// or auth.json; see loadCredential) exists and yields a key. The reason is
 // shown verbatim to the user and never repeats the provider name.
 func (p *Provider) Detect(ctx context.Context) (bool, string) {
 	if _, _, err := p.credential(ctx); err != nil {
