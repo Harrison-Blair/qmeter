@@ -42,7 +42,7 @@ func TestDetect_EnvOverride(t *testing.T) {
 	t.Setenv("QMETER_OPENCODE_GO_KEY", "sk-from-env")
 
 	// The store is deliberately absent: the override alone must be enough.
-	p := New(WithCredentialPath(missingStore(t)))
+	p := New(WithCredentialPath(missingStore(t)), WithDBPath(missingDB(t)))
 
 	ok, reason := p.Detect(context.Background())
 	if !ok {
@@ -56,7 +56,11 @@ func TestDetect_EnvOverride(t *testing.T) {
 func TestDetect_StorePresent(t *testing.T) {
 	clearEnv(t)
 
-	p := New(WithCredentialPath(filepath.Join("testdata", "auth_go.json")))
+	// The DB path is pinned at a fresh, guaranteed-missing file: without
+	// this, Detect would silently resolve the developer's own real
+	// ~/.local/share/opencode/opencode.db instead of the auth.json fixture
+	// this test means to exercise.
+	p := New(WithCredentialPath(filepath.Join("testdata", "auth_go.json")), WithDBPath(missingDB(t)))
 
 	ok, reason := p.Detect(context.Background())
 	if !ok {
@@ -70,7 +74,7 @@ func TestDetect_StorePresent(t *testing.T) {
 func TestDetect_StoreMissingReturnsReason(t *testing.T) {
 	clearEnv(t)
 
-	p := New(WithCredentialPath(missingStore(t)))
+	p := New(WithCredentialPath(missingStore(t)), WithDBPath(missingDB(t)))
 
 	ok, reason := p.Detect(context.Background())
 	if ok {
@@ -86,7 +90,7 @@ func TestDetect_StoreMissingReturnsReason(t *testing.T) {
 func TestDetect_UnparsableStoreExplainsInsteadOfClaimingLogin(t *testing.T) {
 	clearEnv(t)
 
-	p := New(WithCredentialPath(filepath.Join("testdata", "auth_malformed.json")))
+	p := New(WithCredentialPath(filepath.Join("testdata", "auth_malformed.json")), WithDBPath(missingDB(t)))
 
 	ok, reason := p.Detect(context.Background())
 	if ok {
@@ -124,7 +128,7 @@ func TestCredentials_FileWithoutGoEntryIsNotLoggedIn(t *testing.T) {
 				t.Errorf("loadKey() err = %v, want credstore.ErrNotFound", err)
 			}
 
-			p := New(WithCredentialPath(path))
+			p := New(WithCredentialPath(path), WithDBPath(missingDB(t)))
 			ok, reason := p.Detect(context.Background())
 			if ok {
 				t.Error("Detect() ok = true, want false")
@@ -139,7 +143,7 @@ func TestCredentials_FileWithoutGoEntryIsNotLoggedIn(t *testing.T) {
 func TestCredentials_MissingFileReturnsNotLoggedInFromFetch(t *testing.T) {
 	clearEnv(t)
 
-	p := New(WithCredentialPath(missingStore(t)))
+	p := New(WithCredentialPath(missingStore(t)), WithDBPath(missingDB(t)))
 
 	_, err := p.Fetch(context.Background())
 	if !errors.Is(err, provider.ErrNotLoggedIn{}) {
@@ -165,6 +169,22 @@ func TestDefaultCredentialPath_IsHomeRelativeOpenCodeAuthFile(t *testing.T) {
 	want := filepath.Join(home, ".local", "share", "opencode", "auth.json")
 	if got := defaultCredentialPath(); got != want {
 		t.Errorf("defaultCredentialPath() = %q, want %q", got, want)
+	}
+}
+
+// TestNew_DBPathDefaultsToRealOpenCodeDB exercises New()'s own wiring, not
+// just dbPathFor: it asserts against the field New() actually produced
+// (dbPath) rather than recomputing dbPathFor/defaultDBPath and comparing
+// that result to itself, which would pass vacuously even if New() never
+// assigned the field at all.
+func TestNew_DBPathDefaultsToRealOpenCodeDB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // what os.UserHomeDir reads on Windows
+
+	want := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+	if got := New().dbPath; got != want {
+		t.Errorf("New().dbPath = %q, want %q", got, want)
 	}
 }
 
@@ -196,6 +216,7 @@ func TestCredentials_TrailingWhitespaceInStoredKeyIsTrimmed(t *testing.T) {
 	srv, rec := fixtureServer(t, "usage_weekly_only.json")
 	p := New(
 		WithCredentialPath(path),
+		WithDBPath(missingDB(t)),
 		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 	)
@@ -254,11 +275,16 @@ func statusServer(t *testing.T, status int, body []byte) (*httptest.Server, *rec
 	return srv, rec
 }
 
-// testProvider points a Provider at a test server and the valid store fixture.
+// testProvider points a Provider at a test server and the valid store
+// fixture. The DB path is pinned at a fresh, guaranteed-missing file: every
+// test built on this helper expects the auth.json fixture's key, and would
+// silently get the developer's own real opencode.db credential instead
+// without this override.
 func testProvider(t *testing.T, srv *httptest.Server) *Provider {
 	t.Helper()
 	return New(
 		WithCredentialPath(filepath.Join("testdata", "auth_go.json")),
+		WithDBPath(missingDB(t)),
 		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 	)
@@ -619,6 +645,7 @@ func TestFetch_EnvOverrideIsSentVerbatimAndSkipsStore(t *testing.T) {
 	// The store fixture holds a different key; the override must win.
 	p := New(
 		WithCredentialPath(filepath.Join("testdata", "auth_go.json")),
+		WithDBPath(missingDB(t)),
 		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 	)

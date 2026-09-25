@@ -3,6 +3,7 @@ package opencodego
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,6 +51,32 @@ func credentialPathFor(goos string) string {
 		return ""
 	}
 	return filepath.Join(home, ".local", "share", "opencode", "auth.json")
+}
+
+// defaultDBPath returns the OS-default location of OpenCode's v2.x SQLite
+// credential database for the platform this binary was built for.
+func defaultDBPath() string {
+	return dbPathFor(runtime.GOOS)
+}
+
+// dbPathFor returns OpenCode's SQLite credential database for goos, mirroring
+// credentialPathFor exactly except for the leaf filename: OpenCode 2.x moved
+// credential storage from auth.json to opencode.db, but kept it in the very
+// same directory —
+//
+//	Windows        %USERPROFILE%\.local\share\opencode\opencode.db
+//	macOS, Linux   $HOME/.local/share/opencode/opencode.db
+//
+// — so this and credentialPathFor differ only in the filename they join on.
+// As with credentialPathFor, an undeterminable home directory yields the
+// empty string rather than a relative path, which loadKeyFromDB treats as an
+// absent database.
+func dbPathFor(goos string) string {
+	home, err := homeDirFor(goos)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "opencode", "opencode.db")
 }
 
 // homeDirFor returns the home directory goos keeps credentials under:
@@ -122,13 +149,53 @@ func loadKey(path string) (string, error) {
 	return key, nil
 }
 
+// loadCredential resolves the OpenCode Go key from p's two possible local
+// stores, in the documented order: OpenCode's v2.x SQLite database first,
+// then its older JSON auth store. It is the func credential() hands to
+// credstore.Resolve as the store-lookup step; the env override has already
+// been checked by the time this runs.
+//
+// The database's own "not found" outcomes — file absent, no `credential`
+// table, no row for "opencode-go", or a blank key — fall straight through to
+// auth.json without comment. That is the ordinary case for an OpenCode
+// install that predates the database (or one this qmeter build cannot open
+// for some unforeseen, equally mundane reason), not a problem worth
+// reporting.
+//
+// A database that exists but could not be read at all — not a SQLite file,
+// unreadable, or carrying a `credential` table this code cannot make sense
+// of past a missing table — is different: it might be hiding a real
+// credential, so if auth.json turns up nothing either, that read failure is
+// what gets reported, wrapped so it reads well after credstore's "credential
+// store: " prefix. Reporting "not logged in" instead would send a user who
+// already ran `opencode auth login` back through it for nothing, and staying
+// silent about the read failure would look identical to genuinely being
+// logged out. If auth.json does yield a key, the database's problem never
+// surfaces — the user is not blocked on a bug in a store qmeter did not even
+// need.
+func loadCredential(ctx context.Context, dbPath, authPath string) (string, error) {
+	dbKey, dbErr := loadKeyFromDB(ctx, dbPath)
+	if dbErr == nil {
+		return dbKey, nil
+	}
+	if errors.Is(dbErr, credstore.ErrNotFound) {
+		return loadKey(authPath)
+	}
+
+	authKey, authErr := loadKey(authPath)
+	if authErr == nil {
+		return authKey, nil
+	}
+	return "", fmt.Errorf("opencode.db: %w (auth.json fallback: %v)", dbErr, authErr)
+}
+
 // credential resolves the API key for one call, applying the env override
-// first and OpenCode's auth store second. The credential is a plain string:
-// unlike Claude, the store carries no plan name, so there is nothing else to
-// keep.
+// first and OpenCode's local stores second (see loadCredential for that
+// order). The credential is a plain string: unlike Claude, neither store
+// carries a plan name, so there is nothing else to keep.
 func (p *Provider) credential(ctx context.Context) (string, credstore.Source, error) {
-	load := func(context.Context) (string, error) {
-		return loadKey(p.credentialPath)
+	load := func(ctx context.Context) (string, error) {
+		return loadCredential(ctx, p.dbPath, p.credentialPath)
 	}
 	// The override is used verbatim, exactly as credstore documents.
 	fromEnv := func(v string) (string, error) { return v, nil }

@@ -26,7 +26,7 @@ func TestFetchBalances_None(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			t.Setenv(envVar, "synthetic-ledger-key")
-			got, err := New(WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testContext(t))
+			got, err := New(WithDBPath(missingDB(t)), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testContext(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -55,7 +55,7 @@ func TestFetchBalances_ErrorReturnsZeroUsage(t *testing.T) {
 		`{"usage":`,
 	} {
 		srv, _ := statusServer(t, http.StatusOK, []byte(body))
-		got, err := New(WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testContext(t))
+		got, err := New(WithDBPath(missingDB(t)), WithBaseURL(srv.URL), WithHTTPClient(srv.Client())).Fetch(testContext(t))
 		if err == nil || !reflect.DeepEqual(got, provider.Usage{}) {
 			t.Errorf("Fetch = %+v, %v; want zero Usage and an error", got, err)
 		}

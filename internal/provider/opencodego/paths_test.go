@@ -92,3 +92,59 @@ func TestDefaultPath_UsesRuntimeGOOS(t *testing.T) {
 		t.Errorf("defaultCredentialPath() = %q, want %q (runtime.GOOS = %q)", got, want, runtime.GOOS)
 	}
 }
+
+// wantDBPath is dbPathFor's expected answer under home: opencode.db sits
+// beside auth.json, in the same directory, so only the leaf filename differs
+// from wantPath above.
+func wantDBPath(home string) string {
+	return filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+}
+
+func TestDefaultDBPath_Windows(t *testing.T) {
+	home, profile := setHomes(t)
+
+	got := dbPathFor("windows")
+	if want := wantDBPath(profile); got != want {
+		t.Errorf("dbPathFor(\"windows\") = %q, want %q", got, want)
+	}
+	if strings.HasPrefix(got, home) {
+		t.Errorf("dbPathFor(\"windows\") = %q, want it under %%USERPROFILE%% (%s), not $HOME", got, profile)
+	}
+}
+
+func TestDefaultDBPath_MacOS(t *testing.T) {
+	home, profile := setHomes(t)
+
+	got := dbPathFor("darwin")
+	if want := wantDBPath(home); got != want {
+		t.Errorf("dbPathFor(\"darwin\") = %q, want %q", got, want)
+	}
+	if strings.HasPrefix(got, profile) {
+		t.Errorf("dbPathFor(\"darwin\") = %q, want it under $HOME (%s), not %%USERPROFILE%%", got, home)
+	}
+}
+
+func TestDefaultDBPath_Linux(t *testing.T) {
+	home, profile := setHomes(t)
+
+	got := dbPathFor("linux")
+	if want := wantDBPath(home); got != want {
+		t.Errorf("dbPathFor(\"linux\") = %q, want %q", got, want)
+	}
+	if strings.HasPrefix(got, profile) {
+		t.Errorf("dbPathFor(\"linux\") = %q, want it under $HOME (%s), not %%USERPROFILE%%", got, home)
+	}
+}
+
+func TestDefaultDBPath_UsesRuntimeGOOS(t *testing.T) {
+	home, profile := setHomes(t)
+
+	want := wantDBPath(home)
+	if runtime.GOOS == windowsGOOS {
+		want = wantDBPath(profile)
+	}
+
+	if got := defaultDBPath(); got != want {
+		t.Errorf("defaultDBPath() = %q, want %q (runtime.GOOS = %q)", got, want, runtime.GOOS)
+	}
+}
