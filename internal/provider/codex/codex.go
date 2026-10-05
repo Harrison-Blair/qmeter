@@ -1,7 +1,8 @@
 // Package codex reads Codex (ChatGPT) subscription usage limits.
 //
 // Credentials come from the QMETER_CODEX_TOKEN override or, failing that,
-// from ~/.codex/auth.json — read-only, always: qmeter never writes to a
+// from ~/.codex/auth.json, with compatible Pi OAuth as a fallback.
+// Credential stores are read-only: qmeter never writes to a
 // vendor store and never refreshes a token.
 package codex
 
@@ -17,7 +18,9 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/lib/httpx"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -40,10 +43,11 @@ const (
 
 // Provider reads Codex usage limits. Use New to build one.
 type Provider struct {
-	credentialPath string
-	baseURL        string
-	client         *http.Client
-	now            func() time.Time
+	credentialPath   string
+	piCredentialPath string
+	baseURL          string
+	client           *http.Client
+	now              func() time.Time
 }
 
 // Option configures a Provider.
@@ -53,6 +57,11 @@ type Option func(*Provider)
 // it at a fixture or a temp dir.
 func WithCredentialPath(path string) Option {
 	return func(p *Provider) { p.credentialPath = path }
+}
+
+// WithPiCredentialPath overrides the Pi auth store path.
+func WithPiCredentialPath(path string) Option {
+	return func(p *Provider) { p.piCredentialPath = path }
 }
 
 // WithBaseURL overrides the origin of the usage endpoint. Tests point it at
@@ -75,8 +84,9 @@ func WithClock(now func() time.Time) Option {
 // New builds a Codex provider.
 func New(opts ...Option) *Provider {
 	p := &Provider{
-		baseURL: defaultBaseURL,
-		now:     time.Now,
+		baseURL:          defaultBaseURL,
+		piCredentialPath: piauth.DefaultPath(),
+		now:              time.Now,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -87,20 +97,15 @@ func New(opts ...Option) *Provider {
 // ID returns "codex".
 func (p *Provider) ID() string { return providerID }
 
-// Detect reports whether a Codex credential is resolvable without any
-// network I/O. It is true when QMETER_CODEX_TOKEN is set, or when
-// ~/.codex/auth.json exists, parses, and holds a ChatGPT access token — an
-// expired token still counts as detected, since only the endpoint can say so
-// and Fetch reports that as provider.ErrTokenExpired.
-//
-// An API-key store counts as detected too: the file exists and parses,
-// which is the whole of the Detect contract. That its sign-in mode has no
-// usage endpoint is Fetch's to report, so codex shows an explanatory line
-// rather than vanishing from the default listing.
+// Detect reports whether native or Pi subscription credentials are available
+// without network I/O. Expired Pi credentials still count as detected so
+// Fetch can report the refresh hint. Native API-key stores also count as
+// detected when no compatible Pi credential replaces them; Fetch explains
+// why that sign-in mode has no subscription usage endpoint.
 func (p *Provider) Detect(ctx context.Context) (bool, string) {
 	_, err := p.resolveCredential(ctx)
 	switch {
-	case err == nil, errors.Is(err, errAPIKeyMode):
+	case err == nil, errors.Is(err, errAPIKeyMode), errors.Is(err, provider.ErrTokenExpired{}):
 		return true, ""
 	default:
 		return false, detectReason(err)
@@ -142,6 +147,21 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 		return provider.Usage{}, err
 	}
 
+	usage, err := p.fetchCredential(ctx, cred)
+	var expired provider.ErrTokenExpired
+	if cred.Source == credstore.SourceStore && errors.As(err, &expired) && ctx.Err() == nil {
+		pi, piErr := p.loadPi()
+		if piErr == nil {
+			return p.fetchCredential(ctx, pi)
+		}
+		if !piauth.IsMissing(piErr) {
+			return provider.Usage{}, piErr
+		}
+	}
+	return usage, err
+}
+
+func (p *Provider) fetchCredential(ctx context.Context, cred credential) (provider.Usage, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + cred.AccessToken,
 		"Accept":        "application/json",
@@ -150,10 +170,14 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 		headers["ChatGPT-Account-Id"] = cred.AccountID
 	}
 
+	requestTool := tool
+	if cred.Source == credstore.SourcePi {
+		requestTool = "pi"
+	}
 	var resp usageResponse
-	err = httpx.Get(ctx, httpx.Options{
+	err := httpx.Get(ctx, httpx.Options{
 		URL:     p.usageURL(),
-		Tool:    tool,
+		Tool:    requestTool,
 		Headers: headers,
 		Client:  p.client,
 	}, &resp)

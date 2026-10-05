@@ -23,6 +23,7 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv(tokenEnvVar, "")
 	t.Setenv(accountIDEnvVar, "")
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 }
 
 // fixture returns the path of a checked-in testdata file.

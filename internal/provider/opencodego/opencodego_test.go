@@ -30,6 +30,7 @@ func missingStore(t *testing.T) string {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("QMETER_OPENCODE_GO_KEY", "")
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 }
 
 func TestID_MatchesCLIProviderName(t *testing.T) {

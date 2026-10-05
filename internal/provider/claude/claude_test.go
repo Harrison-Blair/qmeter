@@ -42,6 +42,7 @@ func newProvider(t *testing.T, opts ...Option) *Provider {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv(envVar, "")
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 }
 
 // testContext returns a context with a deadline: httpx sets no timeout of its

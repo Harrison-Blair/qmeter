@@ -41,7 +41,7 @@ type Options struct {
 
 	// Tool is the vendor CLI name used in the "open <tool>" hint of a
 	// provider.ErrTokenExpired built from a 401 or 403 (one of: claude,
-	// codex, cursor-agent, opencode).
+	// codex, cursor-agent, opencode, pi).
 	Tool string
 
 	// Headers are set verbatim on the request, one value per name.

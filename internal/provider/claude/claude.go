@@ -1,6 +1,6 @@
 // Package claude implements qmeter's read-only Claude usage provider: it
 // resolves a credential (the QMETER_CLAUDE_TOKEN override, else Claude Code's
-// own credential store), queries the OAuth usage endpoint, and normalizes the
+// own credential store preferred over Pi), queries the OAuth usage endpoint, and normalizes the
 // answer into provider.Usage.
 //
 // The package never writes to Claude's credential store and never refreshes a
@@ -18,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/lib/httpx"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -66,6 +68,8 @@ type Provider struct {
 	// defaultCredentialPath().
 	credPath string
 
+	piCredPath string
+
 	// baseURL overrides the usage endpoint's origin; empty means
 	// DefaultBaseURL.
 	baseURL string
@@ -89,6 +93,11 @@ type Option func(*Provider)
 // OS-default location.
 func WithCredentialPath(path string) Option {
 	return func(p *Provider) { p.credPath = path }
+}
+
+// WithPiCredentialPath reads Pi credentials from path instead of its default auth.json.
+func WithPiCredentialPath(path string) Option {
+	return func(p *Provider) { p.piCredPath = path }
 }
 
 // WithBaseURL sends usage requests to base instead of DefaultBaseURL. The
@@ -169,7 +178,7 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	// Credential errors pass through unwrapped: credstore has already worded
 	// them for display ("not logged in, run claude to log in", or "credential
 	// store: ..."), and a second prefix would double up in the failure line.
-	cred, _, err := p.resolve(ctx)
+	cred, source, err := p.resolve(ctx)
 	if err != nil {
 		return provider.Usage{}, err
 	}
@@ -180,7 +189,7 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	var body map[string]json.RawMessage
 	opts := httpx.Options{
 		URL:  p.usageURL(),
-		Tool: toolName,
+		Tool: credentialTool(source),
 		Headers: map[string]string{
 			"Authorization": "Bearer " + cred.AccessToken,
 			betaHeader:      betaVersion,
@@ -188,7 +197,20 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 		},
 		Client: p.client,
 	}
-	if err := httpx.Get(ctx, opts, &body); err != nil {
+	err = httpx.Get(ctx, opts, &body)
+	if err != nil && ctx.Err() == nil && source == credstore.SourceStore && errors.Is(err, provider.ErrTokenExpired{}) {
+		piCred, piErr := p.loadPi()
+		if !piauth.IsMissing(piErr) {
+			if piErr != nil {
+				return provider.Usage{}, piErr
+			}
+			cred = piCred
+			opts.Tool = "pi"
+			opts.Headers["Authorization"] = "Bearer " + cred.AccessToken
+			err = httpx.Get(ctx, opts, &body)
+		}
+	}
+	if err != nil {
 		return provider.Usage{}, fmt.Errorf("usage request: %w", err)
 	}
 	windows := windowsFrom(body, cred.Plan)
@@ -199,6 +221,13 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 		return provider.Usage{}, errNoKnownWindows
 	}
 	return provider.Usage{Windows: windows, Balances: balancesFrom(body)}, nil
+}
+
+func credentialTool(source credstore.Source) string {
+	if source == credstore.SourcePi {
+		return "pi"
+	}
+	return toolName
 }
 
 // balancesFrom prefers explicitly denominated spend money over the legacy

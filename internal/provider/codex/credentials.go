@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 )
 
 const (
@@ -25,13 +26,14 @@ const (
 )
 
 // credential is everything qmeter needs to call the Codex usage endpoint.
-// Plan is only ever populated from the local store's id_token claims — an
+// Plan is populated from native id_token or Pi access-token claims — an
 // env override is a bare token, so its plan name can only come from the
 // response.
 type credential struct {
 	AccessToken string
 	AccountID   string
 	Plan        string
+	Source      credstore.Source
 }
 
 // authFile mirrors the parts of ~/.codex/auth.json qmeter reads. Unknown
@@ -100,9 +102,30 @@ func homeDirFor(goos string) (string, error) {
 }
 
 // resolveCredential runs the credential lookup order: the QMETER_CODEX_TOKEN
-// override first, then ~/.codex/auth.json.
+// override first, then ~/.codex/auth.json, then compatible Pi OAuth.
 func (p *Provider) resolveCredential(ctx context.Context) (credential, error) {
-	cred, _, err := credstore.Resolve(ctx, tokenEnvVar, tool, p.loadStore, p.fromEnv)
+	cred, source, err := credstore.Resolve(ctx, tokenEnvVar, tool, p.loadStore, p.fromEnv)
+	cred.Source = source
+	if err == nil || os.Getenv(tokenEnvVar) != "" || ctx.Err() != nil {
+		return cred, err
+	}
+	pi, piErr := p.loadPi()
+	if piauth.IsMissing(piErr) {
+		return cred, err
+	}
+	return pi, piErr
+}
+
+// loadPi reads subscription OAuth credentials without refreshing them.
+func (p *Provider) loadPi() (credential, error) {
+	pi, err := piauth.Load(p.piCredentialPath, "openai-codex", p.now())
+	cred := credential{AccessToken: pi.Access, AccountID: pi.AccountID, Source: credstore.SourcePi}
+	if claims, decodeErr := decodeIDToken(pi.Access); decodeErr == nil {
+		cred.Plan = claims.PlanType
+		if cred.AccountID == "" {
+			cred.AccountID = claims.AccountID
+		}
+	}
 	return cred, err
 }
 

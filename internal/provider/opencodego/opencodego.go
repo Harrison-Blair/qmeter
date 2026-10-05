@@ -6,7 +6,8 @@
 // SQLite database (opencode.db), while older releases wrote a plain
 // auth.json. This package tries the database first and falls back to
 // auth.json, so it works against either — see loadCredential in
-// credentials.go for the exact resolution order and error handling.
+// credentials.go for the exact resolution order and error handling. Pi is
+// tried when native credentials cannot be resolved or are rejected.
 package opencodego
 
 import (
@@ -18,7 +19,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/lib/httpx"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -48,16 +51,17 @@ const (
 
 // Provider reads OpenCode Go usage. The zero value is not usable; call New.
 type Provider struct {
-	credentialPath string
-	dbPath         string
-	baseURL        string
-	httpClient     *http.Client
+	credentialPath   string
+	dbPath           string
+	piCredentialPath string
+	baseURL          string
+	httpClient       *http.Client
 }
 
 var _ provider.Provider = (*Provider)(nil)
 
-// Option configures a Provider. Every seam a test needs to replace — the two
-// credential stores, the endpoint, and the HTTP client — is one of these.
+// Option configures a Provider. Every seam a test needs to replace — the
+// native and Pi stores, the endpoint, and the HTTP client — is one of these.
 type Option func(*Provider)
 
 // WithCredentialPath overrides the path of OpenCode's auth.json store.
@@ -72,6 +76,11 @@ func WithCredentialPath(path string) Option {
 // whatever auth.json fixture the test intended to exercise.
 func WithDBPath(path string) Option {
 	return func(p *Provider) { p.dbPath = path }
+}
+
+// WithPiCredentialPath overrides Pi's auth store path.
+func WithPiCredentialPath(path string) Option {
+	return func(p *Provider) { p.piCredentialPath = path }
 }
 
 // WithBaseURL overrides the scheme-and-host the usage path is appended to, so
@@ -89,9 +98,10 @@ func WithHTTPClient(c *http.Client) Option {
 // real endpoint unless an Option says otherwise.
 func New(opts ...Option) *Provider {
 	p := &Provider{
-		credentialPath: defaultCredentialPath(),
-		dbPath:         defaultDBPath(),
-		baseURL:        defaultBaseURL,
+		credentialPath:   defaultCredentialPath(),
+		dbPath:           defaultDBPath(),
+		piCredentialPath: piauth.DefaultPath(),
+		baseURL:          defaultBaseURL,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -121,15 +131,34 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 // Fetch retrieves the current usage windows, in the order rolling, weekly,
 // monthly; windows the response omits are skipped.
 func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
-	key, _, err := p.credential(ctx)
+	key, source, err := p.credential(ctx)
 	if err != nil {
 		return provider.Usage{}, fmt.Errorf("resolve credential: %w", err)
 	}
 
+	requestTool := tool
+	if source == credstore.SourcePi {
+		requestTool = "pi"
+	}
+	result, err := p.fetch(ctx, key, requestTool)
+	if source != credstore.SourceStore || !errors.Is(err, provider.ErrTokenExpired{}) || ctx.Err() != nil {
+		return result, err
+	}
+	piKey, piErr := p.piKey()
+	if piauth.IsMissing(piErr) {
+		return result, err
+	}
+	if piErr != nil {
+		return provider.Usage{}, piErr
+	}
+	return p.fetch(ctx, piKey, "pi")
+}
+
+func (p *Provider) fetch(ctx context.Context, key, requestTool string) (provider.Usage, error) {
 	var resp usageResponse
 	if err := httpx.Get(ctx, httpx.Options{
 		URL:  p.usageURL(),
-		Tool: tool,
+		Tool: requestTool,
 		Headers: map[string]string{
 			"Authorization": "Bearer " + key,
 			"Accept":        "application/json",
