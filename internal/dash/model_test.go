@@ -34,8 +34,8 @@ var now = time.Date(2026, 9, 16, 14, 22, 7, 0, time.UTC)
 // sample is the same run internal/dash/layout's tests draw: eight windows
 // across three providers, one of them rate limited, plus one failed
 // provider and one that was never detected. At 80 cells the responsive
-// 50-cell meters use one column, so with the banner it is a 44-row page: 6
-// banner rows over 38 rows of body.
+// 50-cell meters use one column, so with the banner it is a 64-row page: 6
+// banner rows over 58 rows of body.
 func sample() usage.Result {
 	in := func(d time.Duration) time.Time { return now.Add(d) }
 	return usage.Result{
@@ -304,10 +304,10 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 		return lines[len(lines)-1]
 	}
 
-	// 6 banner rows + 42 body rows (four cards), 17 of them on screen.
+	// 6 banner rows + 58 body rows (four cards), 17 of them on screen.
 	top := footer(m)
-	if !strings.Contains(top, "↓ 25 more") {
-		t.Errorf("footer at the top = %q, want it to count 25 rows below", top)
+	if !strings.Contains(top, "↓ 41 more") {
+		t.Errorf("footer at the top = %q, want it to count 41 rows below", top)
 	}
 	if n := strings.Count(top, "more"); n != 1 {
 		t.Errorf("footer at the top = %q, want exactly one hidden-row count", top)
@@ -320,14 +320,14 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 
 	m, _ = press(t, m, "j", "j")
 	mid := footer(m)
-	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 23 more") {
-		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 23 more", mid)
+	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 39 more") {
+		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 39 more", mid)
 	}
 
 	m, _ = press(t, m, "G")
 	bottom := footer(m)
-	if !strings.Contains(bottom, "↑ 25 more") {
-		t.Errorf("footer at the bottom = %q, want ↑ 25 more", bottom)
+	if !strings.Contains(bottom, "↑ 41 more") {
+		t.Errorf("footer at the bottom = %q, want ↑ 41 more", bottom)
 	}
 	if n := strings.Count(bottom, "more"); n != 1 {
 		t.Errorf("footer at the bottom = %q, want exactly one hidden-row count", bottom)
@@ -385,7 +385,7 @@ func TestUpdate_ResizeClampsTheOffset(t *testing.T) {
 
 	// A taller terminal shows the whole page, so there is nothing left to
 	// scroll past.
-	m = resize(t, m, 80, 60)
+	m = resize(t, m, 80, 70)
 	if m.offset != 0 {
 		t.Errorf("offset = %d after growing the terminal, want 0", m.offset)
 	}

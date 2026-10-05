@@ -39,6 +39,7 @@ func Attach(root *cobra.Command) {
 	root.Args = cobra.NoArgs
 	root.Flags().StringSlice("filter", nil, "show only these providers ("+validProviders+")")
 	root.Flags().Bool("no-banner", false, "hide the qmeter wordmark")
+	root.Flags().Int("thickness", dconfig.DefaultMeterThickness, fmt.Sprintf("number of meter track rows (%d–%d)", dconfig.MinMeterThickness, dconfig.MaxMeterThickness))
 	root.Flags().Bool("vertical", false, "stack providers vertically with full-width meters")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
@@ -53,6 +54,16 @@ func Attach(root *cobra.Command) {
 		vertical, err := cmd.Flags().GetBool("vertical")
 		if err != nil {
 			return err
+		}
+		thickness, err := cmd.Flags().GetInt("thickness")
+		if err != nil {
+			return err
+		}
+		if thickness < dconfig.MinMeterThickness || thickness > dconfig.MaxMeterThickness {
+			msg := fmt.Sprintf("thickness must be between %d and %d", dconfig.MinMeterThickness, dconfig.MaxMeterThickness)
+			fmt.Fprintln(cmd.ErrOrStderr(), msg)
+			cmd.SilenceErrors = true
+			return errors.New(msg)
 		}
 		// --json is a persistent flag on the root command; a root built
 		// without it simply draws.
@@ -99,12 +110,16 @@ func Attach(root *cobra.Command) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", configErr)
 			settings = dconfig.Default()
 		}
+		if cmd.Flags().Changed("thickness") {
+			settings.MeterThickness = thickness
+		}
 		if err := run(ctx, idash.RunOptions{
 			Providers:       providers,
 			Banner:          !noBanner,
 			Vertical:        vertical,
 			Theme:           settings.Theme,
 			MeterWidth:      settings.MeterWidth,
+			MeterThickness:  settings.MeterThickness,
 			RefreshInterval: settings.RefreshInterval,
 		}); err != nil {
 			return err

@@ -87,6 +87,18 @@ func TestRenderMatchesTheGoldenPages(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := layout.Render(sample(), tc.width, opts(tc.banner))
+			for i, line := range got {
+				if strings.ContainsAny(line, "◇✕") {
+					t.Errorf("forecast glyph on row %d", i)
+				}
+				if strings.Contains(line, "▸ ") {
+					for offset, mark := range []string{"╭", "│▰", "│▰", "┴", "100"} {
+						if i+1+offset >= len(got) || !strings.Contains(got[i+1+offset], mark) {
+							t.Errorf("window at row %d missing %s at offset %d", i, mark, offset+1)
+						}
+					}
+				}
+			}
 			want := goldenLines(t, tc.golden)
 			for i := range got {
 				got[i] = strings.TrimRight(got[i], " ")
@@ -608,7 +620,7 @@ func TestCountdownCell(t *testing.T) {
 }
 
 // countdownCell renders one window at the 36-cell floor — where the column
-// is the whole page, so the countdown is the last six cells of the track
+// is the whole page, so the countdown is the last six cells of the middle track
 // row — and returns that field with its padding trimmed. It fails the test
 // if the row is not exactly the page width, which is what a countdown too
 // long for its field would cost.
@@ -618,7 +630,7 @@ func countdownCell(t *testing.T, resets time.Time) string {
 		{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 68, ResetsAt: resets},
 	}}
 	for _, line := range layout.Render(res, layout.MinColumn, opts(false)) {
-		if !strings.Contains(line, "┴") || !strings.Contains(line, "%") {
+		if !strings.Contains(line, "│") || !strings.Contains(line, "%") {
 			continue
 		}
 		if w := runewidth.StringWidth(line); w != layout.MinColumn {

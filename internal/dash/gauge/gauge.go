@@ -1,11 +1,13 @@
-// Package gauge draws the dashboard's fuel gauge: three rows of the same
-// width — a bezel with five tick marks, a track whose needle sits at the
+// Package gauge draws the dashboard's fuel gauge: five rows of the same
+// width — a bezel with five tick marks, three track rows with a bottom needle at the
 // remaining percentage, and a 0/50/100 scale under it. A window that knows
 // its period also gets a pace marker in the bezel row: ▼ above the track
 // cell the needle would occupy if the window were being spent evenly, so
 // a needle left of the marker is being spent faster than even pace.
 //
 //	╭┬────┬─────┬───▼┬─────┬╮
+//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
+//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
 //	┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
 //	 0         50        100
 //
@@ -29,26 +31,19 @@ import (
 // rather than drawing a gauge nobody can read.
 const MinWidth = 22
 
-// Block is one rendered gauge: three rows, each exactly the requested width
+// Block is one rendered gauge: a bezel, thickness track rows and a scale,
+// each exactly the requested width
 // in terminal cells (before styling; the escape sequences add no cells).
 type Block struct {
 	Bezel string
-	Track string
+	Upper []string // track rows above the needle
+	Track string   // bottom track row
 	Scale string
 }
 
 // NoPace, or any negative pace, draws a gauge without a pace marker: the
 // window's period is not known, so there is no even pace to mark.
 const NoPace = -1
-
-// NoForecast leaves the track unchanged. RunsDry marks projected exhaustion
-// with a ✕ at cell zero, which is drawn only while the window still holds
-// some allowance: at 0% the needle itself occupies cell zero, so a spent
-// window keeps its needle and the adjacent "empty" note carries the state.
-const (
-	NoForecast = -1
-	RunsDry    = -2
-)
 
 // The palette. Fill colour is per band (see Band); everything else is fixed.
 // The bold bright-cyan pace marker is a time-derived position,
@@ -87,9 +82,9 @@ func Band(pct float64, rateLimited bool) lipgloss.Color {
 // with pct remaining. pct is clamped to [0, 100]. pace is the fraction of
 // the window still ahead, clamped to [0, 1], and puts the pace marker above
 // that point of the track; NoPace leaves the marker out. It returns an
-// error, and the zero Block, for a width under MinWidth.
-// forecast marks remaining allowance at reset with ◇, or exhaustion with ✕.
-func Render(pct float64, width int, rateLimited bool, pace, forecast float64) (Block, error) {
+// error, and the zero Block, for a width under MinWidth. Thickness is the
+// number of track rows, validated by the caller to be between 1 and 9.
+func Render(pct float64, width int, rateLimited bool, pace float64, thickness int) (Block, error) {
 	if width < MinWidth {
 		return Block{}, fmt.Errorf("gauge: width %d is under the %d-cell minimum (a %d-cell track plus two caps)",
 			width, MinWidth, MinWidth-2)
@@ -101,6 +96,7 @@ func Render(pct float64, width int, rateLimited bool, pace, forecast float64) (B
 		pct = 100
 	}
 
+	rows := make([]string, thickness-1)
 	n := width - 2 // track cells
 	needle := needleIndex(pct, n)
 
@@ -110,20 +106,7 @@ func Render(pct float64, width int, rateLimited bool, pace, forecast float64) (B
 
 	var track strings.Builder
 	track.WriteString(capCell)
-	marker := -1
-	glyph := "◇"
-	color := display.Forecast
-	switch {
-	case forecast == RunsDry:
-		marker, glyph, color = 0, "✕", display.RateLimited
-	case forecast >= 0:
-		marker = needleIndex(forecast, n)
-	}
-	if marker >= 0 && marker < needle {
-		track.WriteString(fill.Render(strings.Repeat("▰", marker)))
-		track.WriteString(lipgloss.NewStyle().Foreground(color).Render(glyph))
-		track.WriteString(fill.Render(strings.Repeat("▰", needle-marker-1)))
-	} else if needle > 0 {
+	if needle > 0 {
 		track.WriteString(fill.Render(strings.Repeat("▰", needle)))
 	}
 	track.WriteString(needleStyle.Render("▲"))
@@ -132,8 +115,18 @@ func Render(pct float64, width int, rateLimited bool, pace, forecast float64) (B
 	}
 	track.WriteString(capCell)
 
+	upper := frame.Render("│")
+	if needle > 0 {
+		upper += fill.Render(strings.Repeat("▰", needle))
+	}
+	upper += spentStyle.Render(strings.Repeat("▱", n-needle)) + frame.Render("│")
+
+	for i := range rows {
+		rows[i] = upper
+	}
 	return Block{
 		Bezel: bezelRow(n, pace, frame),
+		Upper: rows,
 		Track: track.String(),
 		Scale: frame.Render(scale(n)),
 	}, nil
@@ -156,7 +149,11 @@ func bezelRow(n int, pace float64, frame lipgloss.Style) string {
 // Plain returns b with every escape sequence removed, for callers that want
 // the geometry without the colour whatever the renderer's profile is.
 func Plain(b Block) Block {
-	return Block{Bezel: strip(b.Bezel), Track: strip(b.Track), Scale: strip(b.Scale)}
+	upper := make([]string, len(b.Upper))
+	for i, row := range b.Upper {
+		upper[i] = strip(row)
+	}
+	return Block{Bezel: strip(b.Bezel), Upper: upper, Track: strip(b.Track), Scale: strip(b.Scale)}
 }
 
 // needleIndex is the track cell the needle occupies: cell 0 at 0%, the last

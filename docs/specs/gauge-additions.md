@@ -29,7 +29,9 @@ resets, and if not, how much is left when it does?
 2. Dashboard: the track marker always shows, subject to the needle guards (`◇` only
    strictly left of the needle, `✕` only when the needle isn't in cell 0); the
    title-line note shows only when it fits, and the window name keeps priority over
-   the note.
+   the note. The track-marker half of this decision is superseded by
+   [triple-track.md](triple-track.md): no forecast glyphs appear in the track;
+   the title-line note and its fit rules stay.
 3. A rate-limited or empty window is treated as already dry: text `empty`, exhaustion
    at `now`, lands at 0%. Rule 1 below still wins first: invalid timing means no
    forecast, so the existing layout goldens stay byte-identical.

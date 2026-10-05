@@ -45,16 +45,16 @@ func TestLedgerRowsFollowWindowsAndBalanceOrder(t *testing.T) {
 			claude := ledgerLineIndex(t, lines, "◆ claude")
 			first := ledgerLineIndex(t, lines, "extra usage  $5.75 of $20.00")
 			second := ledgerLineIndex(t, lines, "backup  60% of 100%")
-			if first != claude+5 || second != first+1 {
+			if first != claude+7 || second != first+1 {
 				t.Errorf("ledger order: header=%d first=%d second=%d", claude, first, second)
 			}
 			codex := ledgerLineIndex(t, lines, "● codex")
 			credits := ledgerLineIndex(t, lines, "credits  3.5 of -")
 			// Alone in its row the one-line card holds the balance directly
-			// under its top; beside claude's six content rows it is centred.
+			// under its top; beside claude's eight content rows it is centred.
 			want := codex + 1
 			if hasLineWith(lines, "◆ claude", "● codex") {
-				want = codex + 3
+				want = codex + 4
 			}
 			if credits != want {
 				t.Errorf("balance-only section: header=%d balance=%d, want %d", codex, credits, want)
@@ -62,7 +62,7 @@ func TestLedgerRowsFollowWindowsAndBalanceOrder(t *testing.T) {
 			cursor := ledgerLineIndex(t, lines, "cursor")
 			included := ledgerLineIndex(t, lines, "included  0 of 0")
 			demand := ledgerLineIndex(t, lines, "on-demand  unlimited of -")
-			if included != cursor+5 || demand != included+1 {
+			if included != cursor+7 || demand != included+1 {
 				t.Errorf("Cursor rows are misplaced: header=%d included=%d on-demand=%d", cursor, included, demand)
 			}
 			if strings.Contains(lines[included], "$") || strings.Contains(lines[demand], "$") {

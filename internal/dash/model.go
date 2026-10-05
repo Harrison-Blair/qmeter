@@ -105,6 +105,9 @@ type Options struct {
 	// stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
+	// MeterThickness is the number of track rows. Zero uses three rows.
+	MeterThickness int
+
 	// RefreshInterval is the delay after each completed fetch before the
 	// next automatic refresh. Zero uses the dashboard default.
 	RefreshInterval time.Duration
@@ -130,6 +133,7 @@ type Model struct {
 	calendar          bool
 	theme             theme.Theme
 	meterWidth        int
+	meterThickness    int
 	refreshInterval   time.Duration
 	refreshGeneration uint64
 	cancelRefresh     context.CancelFunc
@@ -171,6 +175,7 @@ func New(o Options) Model {
 		vertical:        o.Vertical,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
+		meterThickness:  o.MeterThickness,
 		refreshInterval: o.RefreshInterval,
 		now:             o.Now,
 		ctx:             o.Ctx,
@@ -367,12 +372,13 @@ func (m Model) frame() (header, body []string, fits int) {
 	}
 	pinned := min(head, max(0, m.height-1))
 	page := draw(m.res, m.width, layout.Options{
-		Banner:     m.banner,
-		Vertical:   m.vertical,
-		BodyHeight: max(0, m.height-pinned-1),
-		Now:        m.now(),
-		Theme:      m.theme,
-		MeterWidth: m.meterWidth,
+		Banner:         m.banner,
+		Vertical:       m.vertical,
+		BodyHeight:     max(0, m.height-pinned-1),
+		Now:            m.now(),
+		Theme:          m.theme,
+		MeterWidth:     m.meterWidth,
+		MeterThickness: m.meterThickness,
 	})
 
 	// The header is the banner, or the summary line that replaces it.

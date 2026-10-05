@@ -32,12 +32,12 @@ func spreadBlocks(blocks [][]row, extra int) []row {
 }
 
 // fitSections keeps each provider's content packed and centres it in a card.
-func fitSections(result usage.Result, providers []provInfo, width, cols, colw, gutter int, now time.Time, capacity int) []row {
+func fitSections(result usage.Result, providers []provInfo, width, cols, colw, gutter int, now time.Time, capacity, thickness int) []row {
 	if colw < MinColumn+4 {
 		sections := make([][]row, 0, len(providers))
 		compact := 0
 		for i := 0; i < len(providers); i += cols {
-			lines := sectionRow(result, providers[i:min(i+cols, len(providers))], colw, gutter, now, colw-(pctWidth+1+1+cdWidth))
+			lines := sectionRow(result, providers[i:min(i+cols, len(providers))], colw, gutter, now, colw-(pctWidth+1+1+cdWidth), thickness)
 			sections = append(sections, lines)
 			compact += len(lines)
 		}
@@ -63,7 +63,7 @@ func fitSections(result usage.Result, providers []provInfo, width, cols, colw, g
 		}
 		inner := g.width - 4
 		for _, p := range ps {
-			content := section(result, p, inner, now, inner-(pctWidth+1+1+cdWidth))[1:]
+			content := section(result, p, inner, now, inner-(pctWidth+1+1+cdWidth), thickness)[1:]
 			g.content = append(g.content, content)
 			g.height = max(g.height, len(content)+2)
 		}
