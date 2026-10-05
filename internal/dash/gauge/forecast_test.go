@@ -16,7 +16,7 @@ func TestForecastMarkersAbsent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, row := range fiveRows(t, b) {
+			for _, row := range sixRows(t, b) {
 				if strings.ContainsAny(row, "◇✕") {
 					t.Errorf("pct %v limited %v: glyph in %q", pct, rl, row)
 				}

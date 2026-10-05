@@ -29,7 +29,7 @@ func mustRender(t *testing.T, pct float64, width int, rl bool) gauge.Block {
 	return b
 }
 
-// TestRenderMatchesTheDesignGeometry pins the bezel, bottom track and scale against the
+// TestRenderMatchesTheDesignGeometry pins the bezel, track and scale against the
 // approved mockups: the gauges lifted out of design-u21's 80x24, 100x30,
 // 120x40 and 40x12 pages.
 func TestRenderMatchesTheDesignGeometry(t *testing.T) {
@@ -46,9 +46,9 @@ func TestRenderMatchesTheDesignGeometry(t *testing.T) {
 			width: 25,
 			rl:    false,
 			want: gauge.Block{
-				Bezel: "╭┬────┬─────┬────┬─────┬╮",
-				Track: "┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴",
-				Scale: " 0         50        100 ",
+				Bezel:  "╭┬────┬─────┬────┬─────┬╮",
+				Tracks: []string{"│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│"},
+				Scale:  " 0         50        100 ",
 			},
 		},
 		{
@@ -57,9 +57,9 @@ func TestRenderMatchesTheDesignGeometry(t *testing.T) {
 			width: 35,
 			rl:    false,
 			want: gauge.Block{
-				Bezel: "╭┬───────┬───────┬───────┬───────┬╮",
-				Track: "┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱▱▱▱┴",
-				Scale: " 0              50             100 ",
+				Bezel:  "╭┬───────┬───────┬───────┬───────┬╮",
+				Tracks: []string{"│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱│"},
+				Scale:  " 0              50             100 ",
 			},
 		},
 		{
@@ -68,9 +68,9 @@ func TestRenderMatchesTheDesignGeometry(t *testing.T) {
 			width: 44,
 			rl:    true,
 			want: gauge.Block{
-				Bezel: "╭┬─────────┬─────────┬─────────┬──────────┬╮",
-				Track: "┴▰▰▰▰▰▲▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱┴",
-				Scale: " 0                  50                  100 ",
+				Bezel:  "╭┬─────────┬─────────┬─────────┬──────────┬╮",
+				Tracks: []string{"│▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱│"},
+				Scale:  " 0                  50                  100 ",
 			},
 		},
 		{
@@ -79,9 +79,9 @@ func TestRenderMatchesTheDesignGeometry(t *testing.T) {
 			width: 26,
 			rl:    false,
 			want: gauge.Block{
-				Bezel: "╭┬────┬─────┬─────┬─────┬╮",
-				Track: "┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴",
-				Scale: " 0         50         100 ",
+				Bezel:  "╭┬────┬─────┬─────┬─────┬╮",
+				Tracks: []string{"│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│"},
+				Scale:  " 0         50         100 ",
 			},
 		},
 	}
@@ -92,8 +92,8 @@ func TestRenderMatchesTheDesignGeometry(t *testing.T) {
 			if got.Bezel != tc.want.Bezel {
 				t.Errorf("Bezel:\ngot  %q\nwant %q", got.Bezel, tc.want.Bezel)
 			}
-			if got.Track != tc.want.Track {
-				t.Errorf("Track:\ngot  %q\nwant %q", got.Track, tc.want.Track)
+			if got.Tracks[len(got.Tracks)-1] != tc.want.Tracks[len(tc.want.Tracks)-1] {
+				t.Errorf("Track:\ngot  %q\nwant %q", got.Tracks[len(got.Tracks)-1], tc.want.Tracks[len(tc.want.Tracks)-1])
 			}
 			if got.Scale != tc.want.Scale {
 				t.Errorf("Scale:\ngot  %q\nwant %q", got.Scale, tc.want.Scale)
@@ -107,7 +107,7 @@ func TestEveryRowIsExactlyWidthCells(t *testing.T) {
 		b := mustRender(t, 43.5, width, false)
 		for _, row := range []struct {
 			name, text string
-		}{{"bezel", b.Bezel}, {"upper 1", b.Upper[0]}, {"upper 2", b.Upper[1]}, {"track", b.Track}, {"scale", b.Scale}} {
+		}{{"bezel", b.Bezel}, {"upper 1", b.Tracks[0]}, {"upper 2", b.Tracks[1]}, {"track", b.Tracks[len(b.Tracks)-1]}, {"bottom", b.Bottom}, {"scale", b.Scale}} {
 			if w := runewidth.StringWidth(row.text); w != width {
 				t.Errorf("width %d: %s is %d cells: %q", width, row.name, w, row.text)
 			}
@@ -118,22 +118,22 @@ func TestEveryRowIsExactlyWidthCells(t *testing.T) {
 func TestNeedleSitsAtTheEndsAtZeroAndFull(t *testing.T) {
 	const width = 25 // 23 track cells
 	empty := mustRender(t, 0, width, false)
-	if want := "┴▲" + strings.Repeat("▱", 22) + "┴"; empty.Track != want {
-		t.Errorf("0%%:\ngot  %q\nwant %q", empty.Track, want)
+	if want := "│" + strings.Repeat("▱", 23) + "│"; empty.Tracks[len(empty.Tracks)-1] != want {
+		t.Errorf("0%%:\ngot  %q\nwant %q", empty.Tracks[len(empty.Tracks)-1], want)
 	}
 	full := mustRender(t, 100, width, false)
-	if want := "┴" + strings.Repeat("▰", 22) + "▲┴"; full.Track != want {
-		t.Errorf("100%%:\ngot  %q\nwant %q", full.Track, want)
+	if want := "│" + strings.Repeat("▰", 23) + "│"; full.Tracks[len(full.Tracks)-1] != want {
+		t.Errorf("100%%:\ngot  %q\nwant %q", full.Tracks[len(full.Tracks)-1], want)
 	}
 }
 
 func TestPercentIsClampedToTheTrack(t *testing.T) {
 	const width = 25
 	if got, want := mustRender(t, -12.5, width, false), mustRender(t, 0, width, false); !reflect.DeepEqual(got, want) {
-		t.Errorf("-12.5%% rendered %q, want the 0%% track %q", got.Track, want.Track)
+		t.Errorf("-12.5%% rendered %q, want the 0%% track %q", got.Tracks[len(got.Tracks)-1], want.Tracks[len(want.Tracks)-1])
 	}
 	if got, want := mustRender(t, 150, width, false), mustRender(t, 100, width, false); !reflect.DeepEqual(got, want) {
-		t.Errorf("150%% rendered %q, want the 100%% track %q", got.Track, want.Track)
+		t.Errorf("150%% rendered %q, want the 100%% track %q", got.Tracks[len(got.Tracks)-1], want.Tracks[len(want.Tracks)-1])
 	}
 }
 
@@ -203,12 +203,15 @@ func TestRenderColoursEveryPartOfTheTrack(t *testing.T) {
 	frame := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	fill := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	needle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	if !strings.Contains(b.Bottom, needle.Render("▲")) {
+		t.Error("bottom needle style missing")
+	}
 	spent := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
 
-	wantTrack := frame.Render("┴") + fill.Render(strings.Repeat("▰", 20)) +
-		needle.Render("▲") + spent.Render(strings.Repeat("▱", 2)) + frame.Render("┴")
-	if b.Track != wantTrack {
-		t.Errorf("track:\ngot  %q\nwant %q", b.Track, wantTrack)
+	wantTrack := frame.Render("│") + fill.Render(strings.Repeat("▰", 21)) +
+		spent.Render(strings.Repeat("▱", 2)) + frame.Render("│")
+	if b.Tracks[len(b.Tracks)-1] != wantTrack {
+		t.Errorf("track:\ngot  %q\nwant %q", b.Tracks[len(b.Tracks)-1], wantTrack)
 	}
 	if want := frame.Render("╭┬────┬─────┬────┬─────┬╮"); b.Bezel != want {
 		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
@@ -226,9 +229,9 @@ func TestRateLimitedFillIsRed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
-	want := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(strings.Repeat("▰", 20))
-	if !strings.Contains(b.Track, want) {
-		t.Errorf("rate-limited track %q does not carry the red fill %q", b.Track, want)
+	want := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(strings.Repeat("▰", 21))
+	if !strings.Contains(b.Tracks[len(b.Tracks)-1], want) {
+		t.Errorf("rate-limited track %q does not carry the red fill %q", b.Tracks[len(b.Tracks)-1], want)
 	}
 }
 
@@ -281,10 +284,10 @@ func TestPaceMarkerSitsAboveTheEvenSpendCell(t *testing.T) {
 			if got.Bezel != string(want) {
 				t.Errorf("bezel got %q want %q", got.Bezel, string(want))
 			}
-			if got.Scale != plain.Scale || got.Track != plain.Track {
+			if got.Scale != plain.Scale || got.Tracks[len(got.Tracks)-1] != plain.Tracks[len(plain.Tracks)-1] {
 				t.Errorf("marker altered scale or track: %+v", got)
 			}
-			if strings.ContainsAny(got.Bezel+got.Track+got.Scale, "\x1b") {
+			if strings.ContainsAny(got.Bezel+got.Tracks[len(got.Tracks)-1]+got.Scale, "\x1b") {
 				t.Error("plain profile contains ANSI")
 			}
 		})
@@ -295,7 +298,7 @@ func TestPaceMarkerKeepsEveryRowExactlyWidthCells(t *testing.T) {
 	for width := gauge.MinWidth; width <= 60; width++ {
 		for _, pace := range []float64{0, 0.33, 0.5, 0.99, 1} {
 			b := mustRenderPace(t, 43.5, width, false, pace)
-			for _, row := range []string{b.Bezel, b.Upper[0], b.Upper[1], b.Track, b.Scale} {
+			for _, row := range []string{b.Bezel, b.Tracks[0], b.Tracks[1], b.Tracks[len(b.Tracks)-1], b.Bottom, b.Scale} {
 				if w := runewidth.StringWidth(row); w != width {
 					t.Errorf("width %d, pace %v: scale is %d cells: %q", width, pace, w, row)
 				}
@@ -341,15 +344,18 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	wall := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Faint(true)
 	fill := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	needle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	if !strings.Contains(b.Bottom, needle.Render("▲")) {
+		t.Error("bottom needle style missing")
+	}
 	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 
 	if want := wall.Render("╭┬────┬─────") + cyan.Render("▼") + wall.Render("────┬─────┬╮"); b.Bezel != want {
 		t.Errorf("bezel:\ngot  %q\nwant %q", b.Bezel, want)
 	}
-	wantTrack := wall.Render("┴") + fill.Render(strings.Repeat("▰", 20)) +
-		needle.Render("▲") + wall.Render(strings.Repeat("▱", 2)) + wall.Render("┴")
-	if b.Track != wantTrack {
-		t.Errorf("track:\ngot  %q\nwant %q", b.Track, wantTrack)
+	wantTrack := wall.Render("│") + fill.Render(strings.Repeat("▰", 21)) +
+		wall.Render(strings.Repeat("▱", 2)) + wall.Render("│")
+	if b.Tracks[len(b.Tracks)-1] != wantTrack {
+		t.Errorf("track:\ngot  %q\nwant %q", b.Tracks[len(b.Tracks)-1], wantTrack)
 	}
 	if want := wall.Render(" 0         50        100 "); b.Scale != want {
 		t.Errorf("scale:\ngot  %q\nwant %q", b.Scale, want)

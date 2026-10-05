@@ -304,10 +304,10 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 		return lines[len(lines)-1]
 	}
 
-	// 6 banner rows + 58 body rows (four cards), 17 of them on screen.
+	// 6 banner rows + 66 body rows (four cards), 17 of them on screen.
 	top := footer(m)
-	if !strings.Contains(top, "↓ 41 more") {
-		t.Errorf("footer at the top = %q, want it to count 41 rows below", top)
+	if !strings.Contains(top, "↓ 49 more") {
+		t.Errorf("footer at the top = %q, want it to count 49 rows below", top)
 	}
 	if n := strings.Count(top, "more"); n != 1 {
 		t.Errorf("footer at the top = %q, want exactly one hidden-row count", top)
@@ -320,14 +320,14 @@ func TestView_FooterCountsTheRowsOutOfSight(t *testing.T) {
 
 	m, _ = press(t, m, "j", "j")
 	mid := footer(m)
-	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 39 more") {
-		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 39 more", mid)
+	if !strings.Contains(mid, "↑ 2 more") || !strings.Contains(mid, "↓ 47 more") {
+		t.Errorf("footer after two lines = %q, want ↑ 2 more and ↓ 47 more", mid)
 	}
 
 	m, _ = press(t, m, "G")
 	bottom := footer(m)
-	if !strings.Contains(bottom, "↑ 41 more") {
-		t.Errorf("footer at the bottom = %q, want ↑ 41 more", bottom)
+	if !strings.Contains(bottom, "↑ 49 more") {
+		t.Errorf("footer at the bottom = %q, want ↑ 49 more", bottom)
 	}
 	if n := strings.Count(bottom, "more"); n != 1 {
 		t.Errorf("footer at the bottom = %q, want exactly one hidden-row count", bottom)
@@ -385,7 +385,7 @@ func TestUpdate_ResizeClampsTheOffset(t *testing.T) {
 
 	// A taller terminal shows the whole page, so there is nothing left to
 	// scroll past.
-	m = resize(t, m, 80, 70)
+	m = resize(t, m, 80, 78)
 	if m.offset != 0 {
 		t.Errorf("offset = %d after growing the terminal, want 0", m.offset)
 	}

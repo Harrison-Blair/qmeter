@@ -60,7 +60,7 @@ for the providers above. Cursor continues using its native credential sources.
 `qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and
 under it a fuel gauge for every usage window of every provider it detects — what
 is left of the window, and how long until it resets. The track is three rows tall,
-with the white `▲` needle on the bottom row. When the provider reports
+inside a closed frame, with the white `▲` needle on the bottom rail. When the provider reports
 the window's period, a bold bright-cyan `▼` on the top border points down at where
 the white `▲` needle would sit if the window were being spent evenly: a needle left of the marker is being spent
 faster than even pace, one to its right slower. Each limit name includes a pace
@@ -168,7 +168,7 @@ width. `--vertical` ignores `meter_width` and always uses one framed column
 layouts regardless of `meter_width` or `--vertical`.
 
 `meter_thickness` sets the number of track rows from 1 through 9, defaulting
-to 3. The needle stays on the bottom row; the percentage and countdown sit
+to 3. The track sits inside a closed frame and the needle stays on the bottom rail; the percentage and countdown sit
 on row `(N-1)/2`, counting from zero. `--thickness N` overrides this setting
 for one run. An invalid config value warns and uses the built-in defaults.
 

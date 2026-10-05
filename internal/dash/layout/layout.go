@@ -9,16 +9,17 @@
 // The page is a header (the FIGlet banner, or a one-line summary) over a
 // grid of framed provider cards: up to two columns when each card's inner
 // width can hold the meter's responsive packed floor, one column below. A
-// card's top frame carries the provider's name and plan, then six rows per
+// card's top frame carries the provider's name and plan, then seven rows per
 // usage window — the window's name, the gauge bezel, three track rows
-// with the percentage and countdown on the middle row, and the scale:
+// with the percentage and countdown on the middle row, a bottom rail and the scale:
 //
 //	╭─ ◆ claude ──────────────────── max ─╮
 //	│ ▸ 5h [on pace]                      │
 //	│        ╭┬────┬─────┬───▼┬─────┬╮     │
-//	│        │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│     │
-//	│  68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│ 3h38m │
-//	│        ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴     │
+//	│        │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│     │
+//	│  68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│ 3h38m │
+//	│        │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│     │
+//	│        ╰┴────┴─────┴───▲┴─────┴╯     │
 //	│         0         50        100      │
 //	╰─────────────────────────────────────╯
 //
@@ -433,13 +434,14 @@ func sectionHead(p provInfo, plan string, colw int) row {
 	return out.put(plain, " ").put(planStyle, plan).put(rule, " ─").pad(colw)
 }
 
-// windowBlock is one usage window: thickness + 3 rows, each exactly colw cells.
+// windowBlock is one usage window: thickness + 4 rows, each exactly colw cells.
 //
 //	▸ 5h [on pace]
 //	       ╭┬────┬─────┬───▼┬─────┬╮   [RL]
-//	       │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
-//	 68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│ 3h38m
-//	       ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
+//	       │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│
+//	 68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│ 3h38m
+//	       │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│
+//	       ╰┴────┴─────┴───▲┴─────┴╯
 //	        0         50        100
 func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth, thickness int) []row {
 	gw := gaugeWidth(colw, meterWidth)
@@ -464,9 +466,9 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 		// column, which is exactly a 22-cell gauge. Rather than panic on
 		// a future miscalculation, leave the gauge blank and keep the
 		// page's geometry intact.
-		g = gauge.Block{Bezel: blanks(gw), Upper: make([]string, thickness-1), Track: blanks(gw), Scale: blanks(gw)}
-		for i := range g.Upper {
-			g.Upper[i] = blanks(gw)
+		g = gauge.Block{Bezel: blanks(gw), Tracks: make([]string, thickness), Bottom: blanks(gw), Scale: blanks(gw)}
+		for i := range g.Tracks {
+			g.Tracks[i] = blanks(gw)
 		}
 	}
 
@@ -493,8 +495,7 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 
 	center := func(r row) row { return row{}.pad(left).join(r).pad(colw) }
 	out := []row{center(name), center(bezel)}
-	tracks := append(g.Upper, g.Track)
-	for i, track := range tracks {
+	for i, track := range g.Tracks {
 		line := row{}.pad(gaugeIndent).raw(track, gw).pad(blockw)
 		if i == (thickness-1)/2 {
 			pctText := fmt.Sprintf("%.1f%%", w.RemainingPercent)
@@ -505,6 +506,7 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 		}
 		out = append(out, center(line))
 	}
+	out = append(out, center(row{}.pad(gaugeIndent).raw(g.Bottom, gw).pad(blockw)))
 	scale := row{}.pad(gaugeIndent).raw(g.Scale, gw).pad(blockw)
 	return append(out, center(scale))
 }

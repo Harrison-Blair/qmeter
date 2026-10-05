@@ -14,27 +14,74 @@ import (
 )
 
 func TestThicknessWindow(t *testing.T) {
-	for n := 1; n <= 5; n++ {
+	for n := 1; n <= 9; n++ {
 		for _, width := range []int{36, 39, 40, 120} {
 			o := opts(false)
 			o.MeterThickness = n
 			r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 68, ResetsAt: now.Add(3*time.Hour + 38*time.Minute), RateLimited: true}}}
 			lines := layout.Render(r, width, o)
 			at := indexOfLineWith(lines, "▸ 5h")
-			if at < 0 || len(lines)-at != n+3+boolInt(width >= 40) {
+			if at < 0 || len(lines)-at != n+4+boolInt(width >= 40) {
 				t.Fatalf("thickness %d width %d: wrong window height", n, width)
 			}
-			for y, line := range lines {
-				for _, s := range []string{"68.0%", "3h38m"} {
-					if strings.Contains(line, s) != (y == at+2+(n-1)/2) {
-						t.Fatalf("thickness %d row %d misplaced %s", n, y, s)
-					}
+			for offset, mark := range append(append([]string{"▸ 5h", "╭"}, repeatTrackMarks(n)...), "╰", "100") {
+				if !strings.Contains(lines[at+offset], mark) {
+					t.Fatalf("thickness %d width %d row %d lacks %s", n, width, offset, mark)
 				}
-				if strings.Contains(line, "[RL]") != (y == at+1) {
-					t.Fatal("misplaced RL")
+			}
+			var track string
+			for i := 0; i < n; i++ {
+				line := lines[at+2+i]
+				start := strings.Index(line, "│▰")
+				end := strings.Index(line[start+len("│"):], "│") + start + len("│")
+				got := line[start : end+len("│")]
+				if strings.ContainsAny(got, "▲┴") || (i > 0 && got != track) {
+					t.Fatalf("thickness %d width %d track %d differs: %q", n, width, i, got)
 				}
+				track = got
+			}
+			if !strings.Contains(lines[at+n+2], "▲") {
+				t.Fatal("bottom rail lacks needle")
+			}
+			for _, line := range lines {
 				if runewidth.StringWidth(line) != width {
 					t.Fatal("wrong width")
+				}
+			}
+		}
+	}
+}
+
+func TestThicknessReadouts(t *testing.T) {
+	for n := 1; n <= 9; n++ {
+		o := opts(false)
+		o.MeterThickness = n
+		for _, width := range []int{36, 39, 40, 120} {
+			r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 68, ResetsAt: now.Add(3*time.Hour + 38*time.Minute)}}}
+			lines := layout.Render(r, width, o)
+			at := indexOfLineWith(lines, "▸ 5h")
+			for y, line := range lines {
+				for _, readout := range []string{"68.0%", "3h38m"} {
+					if strings.Contains(line, readout) != (y == at+2+(n-1)/2) {
+						t.Fatalf("thickness %d width %d row %d misplaced %s", n, width, y, readout)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestThicknessRateLimitBadge(t *testing.T) {
+	for n := 1; n <= 9; n++ {
+		o := opts(false)
+		o.MeterThickness = n
+		for _, width := range []int{36, 39, 40, 120} {
+			r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 68, RateLimited: true}}}
+			lines := layout.Render(r, width, o)
+			at := indexOfLineWith(lines, "▸ 5h")
+			for y, line := range lines {
+				if strings.Contains(line, "[RL]") != (y == at+1) {
+					t.Fatalf("thickness %d width %d row %d misplaced RL", n, width, y)
 				}
 			}
 		}
@@ -72,4 +119,12 @@ func TestThicknessGoldens(t *testing.T) {
 			}
 		}
 	}
+}
+
+func repeatTrackMarks(n int) []string {
+	marks := make([]string, n)
+	for i := range marks {
+		marks[i] = "│▰"
+	}
+	return marks
 }

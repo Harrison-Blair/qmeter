@@ -1,5 +1,8 @@
 # Spec: triple-track gauge
 
+> Historical: the gauge pictures, window pictures and tests below describe the
+> former open gauge. [Closed gauge](closed-gauge.md) supersedes them.
+
 Status: implemented and independently reviewed on `dev`. Design agreed with the owner on
 2026-10-04.
 Develop on `dev` or a branch off it; never commit to `main`.
@@ -44,13 +47,13 @@ Settled decisions:
 
 1. **Three track rows.** The bezel row and the scale row are unchanged, pace marker
    included.
-2. **The needle is on the bottom track row only.** That row is today's track row: `┴`
+2. **Superseded by [closed gauge](closed-gauge.md).** **The needle is on the bottom track row only.** That row is today's track row: `┴`
    caps, `▰` fill in cells `[0, needle)`, the white `▲` at `needle`, `▱` spent after it.
-3. **The fill ends at the same column on every row.** The two upper rows have `▰` in
+3. **Superseded by [closed gauge](closed-gauge.md).** **The fill ends at the same column on every row.** The two upper rows have `▰` in
    cells `[0, needle)` and `▱` in cells `[needle, n)`. The cell above the needle is
    spent, never filled. At 0% the upper rows are all `▱`; at 100% they end in one `▱`
    above the needle.
-4. **Upper rows are capped with `│`** in the frame style, where the bottom row has `┴`,
+4. **Superseded by [closed gauge](closed-gauge.md).** **Upper rows are capped with `│`** in the frame style, where the bottom row has `┴`,
    so the bezel's `╭ ╮` corners run down the sides to the `┴` feet.
 5. **Colours are unchanged.** Fill takes the band colour on all three rows, spent cells
    keep the faint red, the frame keeps bright black, and a rate-limited window still
@@ -88,13 +91,13 @@ Settled decisions (2026-10-04):
    config value applies; without either, 3.
 5. **Piped or `--json` output ignores it**, as it ignores `--vertical`. An out-of-range
    `--thickness` is still an error there.
-6. **At any thickness the needle is on the bottom track row only**, which is drawn
+6. **Superseded by [closed gauge](closed-gauge.md).** **At any thickness the needle is on the bottom track row only**, which is drawn
    exactly as decision 2 of "The gauge" says. Every row above it is an upper row as in
    decisions 3 and 4. Thickness 1 has no upper rows.
 7. **The percentage and the countdown sit on track row `(N-1)/2`** (integer division,
    counting from 0 at the top): the only row at 1, the top row at 2, the middle row at
    3, the second row at 4, the middle row at 5. `[RL]` is always on the bezel row.
-8. **A window is `N + 3` rows**: name, bezel, `N` track rows, scale. At thickness 1 that
+8. **Superseded by [closed gauge](closed-gauge.md).** **A window is `N + 3` rows**: name, bezel, `N` track rows, scale. At thickness 1 that
    is the four-row block the dashboard had before this spec, without forecast glyphs.
 
 Thickness 1:
