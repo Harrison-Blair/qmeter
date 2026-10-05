@@ -1,6 +1,6 @@
 # Spec: closed gauge
 
-Status: implemented on `dev`, pending independent review. Design agreed with the owner on
+Status: implemented and independently reviewed on `dev`. Design agreed with the owner on
 2026-10-05.
 Develop on `dev` or a branch off it; never commit to `main`.
 
