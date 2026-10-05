@@ -21,17 +21,17 @@ func TestForecastNotes(t *testing.T) {
 		remaining       float64
 		elapsed, period time.Duration
 		limited         bool
-		note, marker    string
+		note            string
 	}{
-		{"dry", 20, 520 * time.Minute, 1200 * time.Minute, false, "dry in 2h10m", "✕"},
-		{"survives", 56, 50 * time.Minute, 100 * time.Minute, false, "lands at 12%", "◇"},
-		{"round half up", 56.25, 50 * time.Minute, 100 * time.Minute, false, "lands at 13%", "◇"},
-		{"empty", 0, 50 * time.Minute, 100 * time.Minute, false, "empty", ""},
-		{"rate limited", 70, time.Minute, 100 * time.Minute, true, "empty", "✕"},
-		{"none", 70, 0, 0, false, "", ""},
-		{"rate limited invalid timing", 70, 0, 0, true, "", ""},
-		{"floor", 70, time.Minute, 100 * time.Minute, false, "", ""},
-		{"tie", 50, 50 * time.Minute, 100 * time.Minute, false, "lands at 0%", "◇"},
+		{"dry", 20, 520 * time.Minute, 1200 * time.Minute, false, "dry in 2h10m"},
+		{"survives", 56, 50 * time.Minute, 100 * time.Minute, false, "lands at 12%"},
+		{"round half up", 56.25, 50 * time.Minute, 100 * time.Minute, false, "lands at 13%"},
+		{"empty", 0, 50 * time.Minute, 100 * time.Minute, false, "empty"},
+		{"rate limited", 70, time.Minute, 100 * time.Minute, true, "empty"},
+		{"none", 70, 0, 0, false, ""},
+		{"rate limited invalid timing", 70, 0, 0, true, ""},
+		{"floor", 70, time.Minute, 100 * time.Minute, false, ""},
+		{"tie", 50, 50 * time.Minute, 100 * time.Minute, false, "lands at 0%"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, long := range []bool{false, true} {
@@ -42,7 +42,7 @@ func TestForecastNotes(t *testing.T) {
 				w := provider.Window{Provider: "claude", Name: name, RemainingPercent: tc.remaining, Period: tc.period, ResetsAt: now.Add(tc.period - tc.elapsed), RateLimited: tc.limited}
 				r := usage.Result{Windows: []provider.Window{w}}
 				lines := layout.Render(r, 64, layout.Options{Now: now})
-				title, bezel, track := lines[2], lines[3], lines[4]
+				title, bezel := lines[2], lines[3]
 				if tc.note != "" && !long {
 					if !strings.Contains(title, "]  "+tc.note) {
 						t.Errorf("missing note %q: %q", tc.note, title)
@@ -59,11 +59,10 @@ func TestForecastNotes(t *testing.T) {
 						t.Errorf("name lost priority: %q", title)
 					}
 				}
-				if tc.marker != "" && !strings.Contains(track, tc.marker) {
-					t.Errorf("missing track marker %q: %q", tc.marker, track)
-				}
-				if tc.marker == "" && strings.ContainsAny(track, "◇✕") {
-					t.Errorf("unexpected track marker: %q", track)
+				for _, line := range lines {
+					if strings.ContainsAny(line, "◇✕") {
+						t.Errorf("unexpected forecast glyph: %q", line)
+					}
 				}
 				if tc.limited && !strings.Contains(bezel, "[RL]") {
 					t.Errorf("missing RL: %q", bezel)
@@ -103,8 +102,10 @@ func TestForecastNoteFitBoundary(t *testing.T) {
 		if !strings.Contains(lines[2], w.Name) {
 			t.Errorf("name truncated for note: %q", lines[2])
 		}
-		if !strings.Contains(lines[4], "◇") {
-			t.Errorf("missing marker: %q", lines[4])
+		for _, line := range lines {
+			if strings.ContainsAny(line, "◇✕") {
+				t.Errorf("unexpected forecast glyph: %q", line)
+			}
 		}
 	}
 }

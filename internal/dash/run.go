@@ -34,6 +34,9 @@ type RunOptions struct {
 	// stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
+	// MeterThickness is the number of track rows. Zero uses three rows.
+	MeterThickness int
+
 	// RefreshInterval is the delay after each completed fetch before the
 	// next automatic refresh. Zero uses the dashboard default.
 	RefreshInterval time.Duration
@@ -81,6 +84,7 @@ func modelOptions(ctx context.Context, opts RunOptions) Options {
 		Vertical:        opts.Vertical,
 		Theme:           opts.Theme,
 		MeterWidth:      opts.MeterWidth,
+		MeterThickness:  opts.MeterThickness,
 		RefreshInterval: opts.RefreshInterval,
 		Ctx:             ctx,
 	}

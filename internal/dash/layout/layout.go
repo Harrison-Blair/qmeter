@@ -9,14 +9,16 @@
 // The page is a header (the FIGlet banner, or a one-line summary) over a
 // grid of framed provider cards: up to two columns when each card's inner
 // width can hold the meter's responsive packed floor, one column below. A
-// card's top frame carries the provider's name and plan, then four rows per
-// usage window — the window's name, the gauge bezel, the gauge itself
-// between the percentage and the countdown, and the scale:
+// card's top frame carries the provider's name and plan, then six rows per
+// usage window — the window's name, the gauge bezel, three track rows
+// with the percentage and countdown on the middle row, and the scale:
 //
 //	╭─ ◆ claude ──────────────────── max ─╮
 //	│ ▸ 5h [on pace]                      │
 //	│        ╭┬────┬─────┬───▼┬─────┬╮     │
-//	│  68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m │
+//	│        │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│     │
+//	│  68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│ 3h38m │
+//	│        ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴     │
 //	│         0         50        100      │
 //	╰─────────────────────────────────────╯
 //
@@ -57,6 +59,8 @@ const (
 	MinWidth    = MinColumn                                   // the narrowest page that can be drawn at all
 	// DefaultMeterWidth is the preferred complete gauge width, caps included.
 	DefaultMeterWidth = 50
+	// DefaultMeterThickness is the number of track rows.
+	DefaultMeterThickness = 3
 )
 
 // wideGutterMin is the width, in terminal cells, from which the gutter
@@ -89,6 +93,9 @@ type Options struct {
 	// uses DefaultMeterWidth. It only decides when two columns fit: meters
 	// then stretch to their card. Vertical always uses one column.
 	MeterWidth int
+
+	// MeterThickness is the number of track rows. Zero uses three rows.
+	MeterThickness int
 }
 
 // provInfo is a provider's presentation: the marker drawn before its name
@@ -134,6 +141,10 @@ func Render(r usage.Result, width int, o Options) []string {
 	}
 
 	target := meterTarget(o.MeterWidth)
+	thickness := o.MeterThickness
+	if thickness == 0 {
+		thickness = DefaultMeterThickness
+	}
 	rows := header(r, width, o.Banner, o.Theme)
 
 	present := presentProviders(r, o.Theme)
@@ -151,7 +162,7 @@ func Render(r usage.Result, width int, o Options) []string {
 	if o.Vertical {
 		cols, colw, gutter = 1, width, 0
 	}
-	return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight)...), width)
+	return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight, thickness)...), width)
 }
 
 // columns is the page's column arithmetic: two columns only when there are at
@@ -328,11 +339,11 @@ func firstSeenOrder(r usage.Result) []string {
 
 // sectionRow lays one row of sections side by side, padding the shorter
 // column so the next row starts on a clean line.
-func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, meterWidth int) []row {
+func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, meterWidth, thickness int) []row {
 	cols := make([][]row, len(ps))
 	height := 0
 	for i, p := range ps {
-		cols[i] = section(r, p, colw, now, meterWidth)
+		cols[i] = section(r, p, colw, now, meterWidth, thickness)
 		if len(cols[i]) > height {
 			height = len(cols[i])
 		}
@@ -353,8 +364,8 @@ func sectionRow(r usage.Result, ps []provInfo, colw, gutter int, now time.Time, 
 
 // section is one provider's block: its rule, windows, balances, and whatever the
 // run has to say about it.
-func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) []row {
-	return spreadBlocks(sectionBlocks(r, p, colw, now, meterWidth), 0)
+func section(r usage.Result, p provInfo, colw int, now time.Time, meterWidth, thickness int) []row {
+	return spreadBlocks(sectionBlocks(r, p, colw, now, meterWidth, thickness), 0)
 }
 
 // providerPlan uses only the provider's first window, even when its plan is empty.
@@ -371,7 +382,7 @@ func providerPlan(r usage.Result, id string) string {
 }
 
 // sectionBlocks attaches the heading to the first item; each later item is atomic.
-func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWidth int) [][]row {
+func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWidth, thickness int) [][]row {
 	var windows []provider.Window
 	for _, w := range r.Windows {
 		if w.Provider == p.id {
@@ -380,7 +391,7 @@ func sectionBlocks(r usage.Result, p provInfo, colw int, now time.Time, meterWid
 	}
 	out := [][]row{{sectionHead(p, providerPlan(r, p.id), colw)}}
 	for _, w := range windows {
-		out = append(out, windowBlock(w, p, colw, now, meterWidth))
+		out = append(out, windowBlock(w, p, colw, now, meterWidth, thickness))
 	}
 	for _, b := range r.Balances {
 		if b.Provider == p.id {
@@ -422,40 +433,41 @@ func sectionHead(p provInfo, plan string, colw int) row {
 	return out.put(plain, " ").put(planStyle, plan).put(rule, " ─").pad(colw)
 }
 
-// windowBlock is one usage window: four rows, each exactly colw cells.
+// windowBlock is one usage window: thickness + 3 rows, each exactly colw cells.
 //
 //	▸ 5h [on pace]
 //	       ╭┬────┬─────┬───▼┬─────┬╮   [RL]
-//	 68.0% ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴ 3h38m
+//	       │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
+//	 68.0% │▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│ 3h38m
+//	       ┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
 //	        0         50        100
-func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth int) []row {
+func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWidth, thickness int) []row {
 	gw := gaugeWidth(colw, meterWidth)
 	blockw := gw + pctWidth + 1 + 1 + cdWidth
 	left := (colw - blockw) / 2
 	projection := ipace.Forecast(w, now)
-	forecast := float64(gauge.NoForecast)
 	note := ""
 	noteStyle := dimStyle
 	switch projection.State {
 	case "survives":
-		forecast = *projection.RemainingAtReset
-		note = fmt.Sprintf("lands at %.0f%%", math.Round(forecast))
+		note = fmt.Sprintf("lands at %.0f%%", math.Round(*projection.RemainingAtReset))
 	case "dry":
-		forecast = gauge.RunsDry
 		note = "dry in " + formatResets(projection.ExhaustionAt.Sub(now))
 		noteStyle = plain.Foreground(display.RateLimited)
 	case "empty":
-		forecast = gauge.RunsDry
 		note = "empty"
 		noteStyle = plain.Foreground(display.RateLimited)
 	}
-	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now), forecast)
+	g, err := gauge.Render(w.RemainingPercent, gw, w.RateLimited, pace(w, now), thickness)
 	if err != nil {
 		// Unreachable: Render refuses a page too narrow for a 36-cell
 		// column, which is exactly a 22-cell gauge. Rather than panic on
 		// a future miscalculation, leave the gauge blank and keep the
 		// page's geometry intact.
-		g = gauge.Block{Bezel: blanks(gw), Track: blanks(gw), Scale: blanks(gw)}
+		g = gauge.Block{Bezel: blanks(gw), Upper: make([]string, thickness-1), Track: blanks(gw), Scale: blanks(gw)}
+		for i := range g.Upper {
+			g.Upper[i] = blanks(gw)
+		}
 	}
 
 	arrow := lipgloss.NewStyle().Foreground(p.color).Bold(true)
@@ -479,16 +491,22 @@ func windowBlock(w provider.Window, p provInfo, colw int, now time.Time, meterWi
 		bezel = bezel.pad(blockw)
 	}
 
-	pctText := fmt.Sprintf("%.1f%%", w.RemainingPercent)
-	track := rightAlign(row{}, pct, pctText, pctWidth).
-		pad(pctWidth+1).raw(g.Track, gw).
-		pad(pctWidth+1+gw+1).
-		put(countdownStyle(w), countdown(w, now)).pad(blockw)
-
-	scale := row{}.pad(gaugeIndent).raw(g.Scale, gw).pad(blockw)
-
 	center := func(r row) row { return row{}.pad(left).join(r).pad(colw) }
-	return []row{center(name), center(bezel), center(track), center(scale)}
+	out := []row{center(name), center(bezel)}
+	tracks := append(g.Upper, g.Track)
+	for i, track := range tracks {
+		line := row{}.pad(gaugeIndent).raw(track, gw).pad(blockw)
+		if i == (thickness-1)/2 {
+			pctText := fmt.Sprintf("%.1f%%", w.RemainingPercent)
+			line = rightAlign(row{}, pct, pctText, pctWidth).
+				pad(pctWidth+1).raw(track, gw).
+				pad(pctWidth+1+gw+1).
+				put(countdownStyle(w), countdown(w, now)).pad(blockw)
+		}
+		out = append(out, center(line))
+	}
+	scale := row{}.pad(gaugeIndent).raw(g.Scale, gw).pad(blockw)
+	return append(out, center(scale))
 }
 
 // pace is the fraction of w's period still ahead of now, clamped to [0, 1],

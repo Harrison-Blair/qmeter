@@ -59,7 +59,8 @@ for the providers above. Cursor continues using its native credential sources.
 
 `qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and
 under it a fuel gauge for every usage window of every provider it detects — what
-is left of the window, and how long until it resets. When the provider reports
+is left of the window, and how long until it resets. The track is three rows tall,
+with the white `▲` needle on the bottom row. When the provider reports
 the window's period, a bold bright-cyan `▼` on the top border points down at where
 the white `▲` needle would sit if the window were being spent evenly: a needle left of the marker is being spent
 faster than even pace, one to its right slower. Each limit name includes a pace
@@ -88,6 +89,8 @@ Dashboard flags:
 - `--filter claude,codex` shows only the providers named — comma-separated or
   repeated, out of `claude`, `codex`, `opencode-go` and `cursor`. Without it
   every provider is shown.
+- `--thickness N` sets the number of track rows from 1 through 9 (default 3).
+  It overrides `meter_thickness` only when passed.
 - `--no-banner` replaces the wordmark with the one-line summary header.
 - `--vertical` stacks providers in one full-width column instead of the
   automatic one-or-two-column grid.
@@ -106,7 +109,8 @@ its normal width-based fallback even in short terminals.
 
 The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
-both still honour `--filter` and ignore `--vertical`. Colour follows [`NO_COLOR`](https://no-color.org).
+both still honour `--filter` and ignore `--vertical` and thickness. An out-of-range `--thickness` still fails
+before fetching. Colour follows [`NO_COLOR`](https://no-color.org).
 
 The `usage` and `pace` text tables use provider colors, remaining-allowance bands,
 cyan reset countdowns (red when rate limited), and colored status messages. Pace
@@ -130,6 +134,7 @@ merged with the built-in defaults.
 
 ```toml
 meter_width = 50
+meter_thickness = 3
 refresh_interval = 60
 
 [colors.claude]
@@ -161,6 +166,11 @@ configured preference if space permits, and a lone last card fills the page
 width. `--vertical` ignores `meter_width` and always uses one framed column
 (unframed below 40 columns). Timeline and calendar widths follow their own
 layouts regardless of `meter_width` or `--vertical`.
+
+`meter_thickness` sets the number of track rows from 1 through 9, defaulting
+to 3. The needle stays on the bottom row; the percentage and countdown sit
+on row `(N-1)/2`, counting from zero. `--thickness N` overrides this setting
+for one run. An invalid config value warns and uses the built-in defaults.
 
 `refresh_interval` is the number of seconds between automatic refreshes. It
 defaults to 60 and accepts values from 1 through 86400. The interval begins

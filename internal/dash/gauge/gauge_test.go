@@ -2,6 +2,7 @@ package gauge_test
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -21,14 +22,14 @@ func TestMain(m *testing.M) {
 
 func mustRender(t *testing.T, pct float64, width int, rl bool) gauge.Block {
 	t.Helper()
-	b, err := gauge.Render(pct, width, rl, gauge.NoPace, gauge.NoForecast)
+	b, err := gauge.Render(pct, width, rl, gauge.NoPace, 3)
 	if err != nil {
 		t.Fatalf("Render(%v, %d, %v) returned error: %v", pct, width, rl, err)
 	}
 	return b
 }
 
-// TestRenderMatchesTheDesignGeometry pins the three rows against the
+// TestRenderMatchesTheDesignGeometry pins the bezel, bottom track and scale against the
 // approved mockups: the gauges lifted out of design-u21's 80x24, 100x30,
 // 120x40 and 40x12 pages.
 func TestRenderMatchesTheDesignGeometry(t *testing.T) {
@@ -106,7 +107,7 @@ func TestEveryRowIsExactlyWidthCells(t *testing.T) {
 		b := mustRender(t, 43.5, width, false)
 		for _, row := range []struct {
 			name, text string
-		}{{"bezel", b.Bezel}, {"track", b.Track}, {"scale", b.Scale}} {
+		}{{"bezel", b.Bezel}, {"upper 1", b.Upper[0]}, {"upper 2", b.Upper[1]}, {"track", b.Track}, {"scale", b.Scale}} {
 			if w := runewidth.StringWidth(row.text); w != width {
 				t.Errorf("width %d: %s is %d cells: %q", width, row.name, w, row.text)
 			}
@@ -128,10 +129,10 @@ func TestNeedleSitsAtTheEndsAtZeroAndFull(t *testing.T) {
 
 func TestPercentIsClampedToTheTrack(t *testing.T) {
 	const width = 25
-	if got, want := mustRender(t, -12.5, width, false), mustRender(t, 0, width, false); got != want {
+	if got, want := mustRender(t, -12.5, width, false), mustRender(t, 0, width, false); !reflect.DeepEqual(got, want) {
 		t.Errorf("-12.5%% rendered %q, want the 0%% track %q", got.Track, want.Track)
 	}
-	if got, want := mustRender(t, 150, width, false), mustRender(t, 100, width, false); got != want {
+	if got, want := mustRender(t, 150, width, false), mustRender(t, 100, width, false); !reflect.DeepEqual(got, want) {
 		t.Errorf("150%% rendered %q, want the 100%% track %q", got.Track, want.Track)
 	}
 }
@@ -140,14 +141,14 @@ func TestRenderRefusesAGaugeUnderTheTwentyCellFloor(t *testing.T) {
 	if gauge.MinWidth != 22 {
 		t.Errorf("MinWidth = %d, want 22 (a 20-cell track plus the two caps)", gauge.MinWidth)
 	}
-	if _, err := gauge.Render(50, gauge.MinWidth, false, gauge.NoPace, gauge.NoForecast); err != nil {
+	if _, err := gauge.Render(50, gauge.MinWidth, false, gauge.NoPace, 3); err != nil {
 		t.Errorf("Render at MinWidth returned error: %v", err)
 	}
-	b, err := gauge.Render(50, gauge.MinWidth-1, false, gauge.NoPace, gauge.NoForecast)
+	b, err := gauge.Render(50, gauge.MinWidth-1, false, gauge.NoPace, 3)
 	if err == nil {
 		t.Fatalf("Render at %d cells returned no error, want one", gauge.MinWidth-1)
 	}
-	if b != (gauge.Block{}) {
+	if !reflect.DeepEqual(b, gauge.Block{}) {
 		t.Errorf("Render returned %+v alongside its error, want the zero Block", b)
 	}
 	if !strings.Contains(err.Error(), "21") {
@@ -194,7 +195,7 @@ func TestRenderColoursEveryPartOfTheTrack(t *testing.T) {
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
 	const width = 25 // 23 cells; 90% puts the needle at cell 20
-	b, err := gauge.Render(90, width, false, gauge.NoPace, gauge.NoForecast)
+	b, err := gauge.Render(90, width, false, gauge.NoPace, 3)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestRateLimitedFillIsRed(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(90, 25, true, gauge.NoPace, gauge.NoForecast)
+	b, err := gauge.Render(90, 25, true, gauge.NoPace, 3)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -235,15 +236,15 @@ func TestPlainStripsTheStyling(t *testing.T) {
 	bare := mustRender(t, 68, 25, false) // Ascii profile: already unstyled
 
 	lipgloss.SetColorProfile(termenv.ANSI256)
-	styled, err := gauge.Render(68, 25, false, gauge.NoPace, gauge.NoForecast)
+	styled, err := gauge.Render(68, 25, false, gauge.NoPace, 3)
 	lipgloss.SetColorProfile(termenv.Ascii)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
-	if styled == bare {
+	if reflect.DeepEqual(styled, bare) {
 		t.Fatal("the 256-colour render carries no styling, so Plain proves nothing")
 	}
-	if got := gauge.Plain(styled); got != bare {
+	if got := gauge.Plain(styled); !reflect.DeepEqual(got, bare) {
 		t.Errorf("Plain:\ngot  %+v\nwant %+v", got, bare)
 	}
 }
@@ -251,7 +252,7 @@ func TestPlainStripsTheStyling(t *testing.T) {
 // mustRenderPace is mustRender with a pace marker.
 func mustRenderPace(t *testing.T, pct float64, width int, rl bool, pace float64) gauge.Block {
 	t.Helper()
-	b, err := gauge.Render(pct, width, rl, pace, gauge.NoForecast)
+	b, err := gauge.Render(pct, width, rl, pace, 3)
 	if err != nil {
 		t.Fatalf("Render(%v, %d, %v, %v) returned error: %v", pct, width, rl, pace, err)
 	}
@@ -294,7 +295,7 @@ func TestPaceMarkerKeepsEveryRowExactlyWidthCells(t *testing.T) {
 	for width := gauge.MinWidth; width <= 60; width++ {
 		for _, pace := range []float64{0, 0.33, 0.5, 0.99, 1} {
 			b := mustRenderPace(t, 43.5, width, false, pace)
-			for _, row := range []string{b.Bezel, b.Track, b.Scale} {
+			for _, row := range []string{b.Bezel, b.Upper[0], b.Upper[1], b.Track, b.Scale} {
 				if w := runewidth.StringWidth(row); w != width {
 					t.Errorf("width %d, pace %v: scale is %d cells: %q", width, pace, w, row)
 				}
@@ -312,7 +313,7 @@ func TestPaceMarkerIsCyan(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(68, 25, false, 0.5, gauge.NoForecast)
+	b, err := gauge.Render(68, 25, false, 0.5, 3)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -333,7 +334,7 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	b, err := gauge.Render(90, 25, true, 0.5, gauge.NoForecast)
+	b, err := gauge.Render(90, 25, true, 0.5, 3)
 	if err != nil {
 		t.Fatalf("Render returned error: %v", err)
 	}
@@ -355,7 +356,7 @@ func TestRateLimitedFrameIsFaintRed(t *testing.T) {
 	}
 
 	// The same gauge, not rate limited, stripped: the wall is colour only.
-	if got, want := gauge.Plain(b), gauge.Plain(mustRenderPace(t, 90, 25, false, 0.5)); got != want {
+	if got, want := gauge.Plain(b), gauge.Plain(mustRenderPace(t, 90, 25, false, 0.5)); !reflect.DeepEqual(got, want) {
 		t.Errorf("the wall changed the geometry:\ngot  %+v\nwant %+v", got, want)
 	}
 }

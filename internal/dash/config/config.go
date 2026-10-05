@@ -20,6 +20,11 @@ const (
 	MinMeterWidth     = 22
 	MaxMeterWidth     = 200
 
+	// DefaultMeterThickness is the number of track rows.
+	DefaultMeterThickness = 3
+	MinMeterThickness     = 1
+	MaxMeterThickness     = 9
+
 	DefaultRefreshInterval = 60 * time.Second
 	minRefreshSeconds      = 1
 	maxRefreshSeconds      = 86400
@@ -28,6 +33,7 @@ const (
 // Settings are the validated dashboard presentation settings.
 type Settings struct {
 	MeterWidth      int
+	MeterThickness  int
 	Theme           theme.Theme
 	RefreshInterval time.Duration
 }
@@ -42,6 +48,7 @@ var (
 func Default() Settings {
 	return Settings{
 		MeterWidth:      DefaultMeterWidth,
+		MeterThickness:  DefaultMeterThickness,
 		Theme:           theme.Default(),
 		RefreshInterval: DefaultRefreshInterval,
 	}
@@ -73,6 +80,7 @@ func Load() (Settings, error) {
 
 type rawConfig struct {
 	MeterWidth      *int      `toml:"meter_width"`
+	MeterThickness  *int      `toml:"meter_thickness"`
 	RefreshInterval *int      `toml:"refresh_interval"`
 	Colors          rawColors `toml:"colors"`
 }
@@ -105,6 +113,12 @@ func parse(data []byte) (Settings, error) {
 			return Settings{}, fmt.Errorf("meter_width must be between %d and %d", MinMeterWidth, MaxMeterWidth)
 		}
 		settings.MeterWidth = *raw.MeterWidth
+	}
+	if raw.MeterThickness != nil {
+		if *raw.MeterThickness < MinMeterThickness || *raw.MeterThickness > MaxMeterThickness {
+			return Settings{}, fmt.Errorf("meter_thickness must be between %d and %d", MinMeterThickness, MaxMeterThickness)
+		}
+		settings.MeterThickness = *raw.MeterThickness
 	}
 	if raw.RefreshInterval != nil {
 		if *raw.RefreshInterval < minRefreshSeconds || *raw.RefreshInterval > maxRefreshSeconds {
