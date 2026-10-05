@@ -84,13 +84,13 @@ func TestFitCardsPackedCenteredAndTiled(t *testing.T) {
 		o := opts(false)
 		o.BodyHeight = capacity
 		got := layout.Render(fitResult(), 120, o)[1:]
-		extra := max(0, capacity-22)
-		h := 14 + (extra+1)/2
-		lastH := 8 + extra/2
+		extra := max(0, capacity-25)
+		h := 16 + (extra+1)/2
+		lastH := 9 + extra/2
 		if len(got) != h+lastH {
 			t.Fatalf("capacity %d height %d", capacity, len(got))
 		}
-		for text, want := range map[string]int{"◆ claude": 0, "● codex": 0, "▸ first": 1 + (h-14)/2, "▸ second": 7 + (h-14)/2, "▸ paired": 1 + (h-9)/2, "error: offline": 7 + (h-9)/2, "▲ cursor": h, "▸ last": h + 1 + (lastH-8)/2} {
+		for text, want := range map[string]int{"◆ claude": 0, "● codex": 0, "▸ first": 1 + (h-16)/2, "▸ second": 8 + (h-16)/2, "▸ paired": 1 + (h-10)/2, "error: offline": 8 + (h-10)/2, "▲ cursor": h, "▸ last": h + 1 + (lastH-9)/2} {
 			if at := indexOfLineWith(got, text); at != want {
 				t.Errorf("capacity %d %s row=%d want %d", capacity, text, at, want)
 			}
@@ -136,7 +136,7 @@ func TestFitBalancesAndStatusesArePacked(t *testing.T) {
 	o := opts(false)
 	o.BodyHeight = 18
 	got := layout.Render(r, 120, o)[1:]
-	for text, want := range map[string]int{"▸ first": 1, "▸ second": 7, "credits": 13, "bonus": 14, "error: offline": 15, "not detected: missing": 8} {
+	for text, want := range map[string]int{"▸ first": 1, "▸ second": 8, "credits": 15, "bonus": 16, "error: offline": 17, "not detected: missing": 9} {
 		if at := indexOfLineWith(got, text); at != want {
 			t.Errorf("%s row=%d want %d", text, at, want)
 		}
@@ -153,7 +153,7 @@ func TestFitNarrowFallbackOuterSlots(t *testing.T) {
 			got := layout.Render(fitResult(), width, o)[1:]
 			var want []string
 			offset := 0
-			for i, n := range []int{13, 8, 7, 0} {
+			for i, n := range []int{15, 9, 8, 0} {
 				gap := spare / 4
 				if i < spare%4 {
 					gap++
@@ -175,7 +175,7 @@ func TestFitBannerAndSingleton(t *testing.T) {
 	o := opts(true)
 	o.BodyHeight = 12
 	got := layout.Render(usage.Result{Windows: fitResult().Windows[:1]}, 120, o)
-	if len(got) != 18 || !strings.HasPrefix(got[6], "╭─ ◆ claude") || indexOfLineWith(got, "▸ first") != 9 {
+	if len(got) != 18 || !strings.HasPrefix(got[6], "╭─ ◆ claude") || indexOfLineWith(got, "▸ first") != 8 {
 		t.Fatalf("banner or singleton geometry: %q", got)
 	}
 	for _, tc := range []struct {

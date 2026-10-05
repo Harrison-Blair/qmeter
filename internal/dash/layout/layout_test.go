@@ -92,7 +92,7 @@ func TestRenderMatchesTheGoldenPages(t *testing.T) {
 					t.Errorf("forecast glyph on row %d", i)
 				}
 				if strings.Contains(line, "▸ ") {
-					for offset, mark := range []string{"╭", "│▰", "│▰", "┴", "100"} {
+					for offset, mark := range []string{"╭", "│▰", "│▰", "│▰", "╰", "100"} {
 						if i+1+offset >= len(got) || !strings.Contains(got[i+1+offset], mark) {
 							t.Errorf("window at row %d missing %s at offset %d", i, mark, offset+1)
 						}
@@ -682,19 +682,22 @@ func countLinesWith(lines []string, sub string) int {
 
 func renderedGaugeWidths(lines []string) []int {
 	var widths []int
-	for _, line := range lines {
+	for y, line := range lines {
+		if y == 0 || !strings.Contains(lines[y-1], "╭") {
+			continue
+		}
 		runes := []rune(line)
-		start := -1
-		for i, r := range runes {
-			if r != '┴' {
+		for i := 0; i+1 < len(runes); i++ {
+			if runes[i] != '│' || (runes[i+1] != '▰' && runes[i+1] != '▱') {
 				continue
 			}
-			if start < 0 {
-				start = i
-				continue
+			for j := i + 1; j < len(runes); j++ {
+				if runes[j] == '│' {
+					widths = append(widths, j-i+1)
+					i = j
+					break
+				}
 			}
-			widths = append(widths, i-start+1)
-			start = -1
 		}
 	}
 	return widths

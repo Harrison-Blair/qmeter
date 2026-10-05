@@ -1,14 +1,16 @@
-// Package gauge draws the dashboard's fuel gauge: five rows of the same
-// width — a bezel with five tick marks, three track rows with a bottom needle at the
-// remaining percentage, and a 0/50/100 scale under it. A window that knows
-// its period also gets a pace marker in the bezel row: ▼ above the track
-// cell the needle would occupy if the window were being spent evenly, so
-// a needle left of the marker is being spent faster than even pace.
+// Package gauge draws the dashboard's fuel gauge: six rows of the same
+// width — a bezel with five tick marks, three identical track rows, a bottom
+// rail with a needle at the remaining percentage, and a 0/50/100 scale
+// under it. A window that knows its period also gets a pace marker in the
+// bezel row: ▼ above the track cell the needle would occupy if the window
+// were being spent evenly, so a needle left of the marker is being spent
+// faster than even pace.
 //
 //	╭┬────┬─────┬───▼┬─────┬╮
-//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
-//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱│
-//	┴▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▲▱▱▱▱▱▱▱┴
+//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│
+//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│
+//	│▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱│
+//	╰┴────┴─────┴───▲┴─────┴╯
 //	 0         50        100
 //
 // The package is pure: it takes a percentage and a width and returns
@@ -26,19 +28,19 @@ import (
 )
 
 // MinWidth is the narrowest gauge the design allows, caps included: twenty
-// coloured track cells plus the two ┴ caps. The layout gives up a column
+// coloured track cells plus the two │ caps. The layout gives up a column
 // before it gives up track cells, so Render refuses anything narrower
 // rather than drawing a gauge nobody can read.
 const MinWidth = 22
 
-// Block is one rendered gauge: a bezel, thickness track rows and a scale,
-// each exactly the requested width
-// in terminal cells (before styling; the escape sequences add no cells).
+// Block is one rendered gauge: a bezel, thickness track rows, a bottom rail
+// and a scale, each exactly the requested width in terminal cells (before
+// styling; the escape sequences add no cells).
 type Block struct {
-	Bezel string
-	Upper []string // track rows above the needle
-	Track string   // bottom track row
-	Scale string
+	Bezel  string   // top rail with tick marks and optional pace marker
+	Tracks []string // identical track rows, one per unit of thickness
+	Bottom string   // bottom rail with the remaining-percentage needle
+	Scale  string   // 0/50/100 labels under the track
 }
 
 // NoPace, or any negative pace, draws a gauge without a pace marker: the
@@ -55,7 +57,7 @@ var (
 	paceStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // bright cyan
 )
 
-// frame is the style of the bezel, the caps and the scale. A rate-limited
+// frame is the style of both rails, the caps and the scale. A rate-limited
 // window is a wall with a timer on it, so its frame joins the fill in
 // faint red instead of the neutral bright black: red already means
 // "worried", and the frame borrows it rather than adding a colour.
@@ -78,7 +80,7 @@ func Band(pct float64, rateLimited bool) lipgloss.Color {
 	return display.Band(pct, rateLimited)
 }
 
-// Render draws a gauge width cells wide (the ┴ caps included) for a window
+// Render draws a gauge width cells wide (the frame caps included) for a window
 // with pct remaining. pct is clamped to [0, 100]. pace is the fraction of
 // the window still ahead, clamped to [0, 1], and puts the pace marker above
 // that point of the track; NoPace leaves the marker out. It returns an
@@ -96,39 +98,36 @@ func Render(pct float64, width int, rateLimited bool, pace float64, thickness in
 		pct = 100
 	}
 
-	rows := make([]string, thickness-1)
+	rows := make([]string, thickness)
 	n := width - 2 // track cells
 	needle := needleIndex(pct, n)
 
 	fill := lipgloss.NewStyle().Foreground(Band(pct, rateLimited))
 	frame := frame(rateLimited)
-	capCell := frame.Render("┴")
-
-	var track strings.Builder
-	track.WriteString(capCell)
-	if needle > 0 {
-		track.WriteString(fill.Render(strings.Repeat("▰", needle)))
+	filled := 0
+	if pct > 0 {
+		filled = needle + 1
 	}
-	track.WriteString(needleStyle.Render("▲"))
-	if rest := n - needle - 1; rest > 0 {
-		track.WriteString(spentStyle.Render(strings.Repeat("▱", rest)))
+	track := frame.Render("│")
+	if filled > 0 {
+		track += fill.Render(strings.Repeat("▰", filled))
 	}
-	track.WriteString(capCell)
-
-	upper := frame.Render("│")
-	if needle > 0 {
-		upper += fill.Render(strings.Repeat("▰", needle))
+	if filled < n {
+		track += spentStyle.Render(strings.Repeat("▱", n-filled))
 	}
-	upper += spentStyle.Render(strings.Repeat("▱", n-needle)) + frame.Render("│")
+	track += frame.Render("│")
+	bottom := []rune("╰" + strings.ReplaceAll(bezelBody(n), "┬", "┴") + "╯")
+	at := needle + 1
+	bottomRow := frame.Render(string(bottom[:at])) + needleStyle.Render("▲") + frame.Render(string(bottom[at+1:]))
 
 	for i := range rows {
-		rows[i] = upper
+		rows[i] = track
 	}
 	return Block{
-		Bezel: bezelRow(n, pace, frame),
-		Upper: rows,
-		Track: track.String(),
-		Scale: frame.Render(scale(n)),
+		Bezel:  bezelRow(n, pace, frame),
+		Tracks: rows,
+		Bottom: bottomRow,
+		Scale:  frame.Render(scale(n)),
 	}, nil
 }
 
@@ -149,11 +148,11 @@ func bezelRow(n int, pace float64, frame lipgloss.Style) string {
 // Plain returns b with every escape sequence removed, for callers that want
 // the geometry without the colour whatever the renderer's profile is.
 func Plain(b Block) Block {
-	upper := make([]string, len(b.Upper))
-	for i, row := range b.Upper {
-		upper[i] = strip(row)
+	tracks := make([]string, len(b.Tracks))
+	for i, row := range b.Tracks {
+		tracks[i] = strip(row)
 	}
-	return Block{Bezel: strip(b.Bezel), Upper: upper, Track: strip(b.Track), Scale: strip(b.Scale)}
+	return Block{Bezel: strip(b.Bezel), Tracks: tracks, Bottom: strip(b.Bottom), Scale: strip(b.Scale)}
 }
 
 // needleIndex is the track cell the needle occupies: cell 0 at 0%, the last
@@ -183,7 +182,7 @@ func bezelBody(n int) string {
 
 // scale is the label row, the full width of the gauge: 0 under the first
 // track cell, 100 ending under the last one, 50 centred between them. The
-// row starts and ends with the cell under a ┴ cap, so it lines up with the
+// row starts and ends with the cell under a frame cap, so it lines up with the
 // track above it.
 func scale(n int) string {
 	buf := []rune(strings.Repeat(" ", n+2))

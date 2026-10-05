@@ -12,7 +12,7 @@ import (
 )
 
 func TestThicknessModelResize(t *testing.T) {
-	for _, n := range []int{1, 3, 5, 9} {
+	for n := 1; n <= 9; n++ {
 		m := New(modelOptions(context.Background(), RunOptions{MeterThickness: n}))
 		m.now = func() time.Time { return now }
 		m.res = usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 68}}}
@@ -30,20 +30,28 @@ func TestThicknessModelResize(t *testing.T) {
 					break
 				}
 			}
-			if at < 0 || at+n+2 >= len(lines) {
+			if at < 0 || at+n+3 >= len(lines) {
 				t.Fatal("window missing")
 			}
+			var track string
 			for i := 0; i < n; i++ {
 				line := lines[at+2+i]
-				if i == n-1 {
-					if !strings.Contains(line, "┴") || !strings.Contains(line, "▲") {
-						t.Fatalf("thickness %d width %d bottom missing", n, width)
-					}
-				} else if !strings.Contains(line, "│▰") || strings.Contains(line, "▲") {
-					t.Fatalf("thickness %d width %d upper missing", n, width)
+				start := strings.Index(line, "│▰")
+				if start < 0 || strings.ContainsAny(line, "▲┴") {
+					t.Fatalf("thickness %d width %d track %d lacks plain capped fill", n, width, i)
 				}
+				end := strings.Index(line[start+len("│"):], "│") + start + len("│")
+				got := line[start : end+len("│")]
+				if i > 0 && got != track {
+					t.Fatalf("thickness %d width %d track rows differ", n, width)
+				}
+				track = got
 			}
-			if !strings.Contains(lines[at+n+2], "100") {
+			bottom := lines[at+n+2]
+			if !strings.Contains(bottom, "╰") || !strings.Contains(bottom, "╯") || !strings.Contains(bottom, "▲") {
+				t.Fatalf("thickness %d width %d bottom rail missing", n, width)
+			}
+			if !strings.Contains(lines[at+n+3], "100") {
 				t.Fatalf("thickness %d width %d scale misplaced", n, width)
 			}
 		}
