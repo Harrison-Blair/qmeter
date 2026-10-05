@@ -43,6 +43,8 @@ const (
 	// SourceStore means the credential came from the vendor's local store,
 	// step 2 of the lookup order.
 	SourceStore Source = "store"
+	// SourcePi means the credential came from Pi's shared auth.json store.
+	SourcePi Source = "pi"
 )
 
 // Resolve runs the credential lookup order for one provider and reports which

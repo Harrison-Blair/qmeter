@@ -18,6 +18,43 @@ A CLI tool to see your AI subscription usage limits
 - OpenCode Go
 - Cursor
 
+### Credential discovery
+
+qmeter reads credentials from each provider's native store, with Pi as a
+fallback for compatible subscriptions:
+
+| qmeter provider | Pi entry in `auth.json` | Credential |
+| --- | --- | --- |
+| `claude` | `anthropic` | Claude subscription OAuth |
+| `codex` | `openai-codex` | ChatGPT subscription OAuth |
+| `opencode-go` | `opencode-go` | OpenCode Go API key |
+
+Pi's store defaults to `~/.pi/agent/auth.json`. `PI_CODING_AGENT_DIR` overrides
+the directory; qmeter appends `auth.json` and expands a leading `~` like Pi.
+Stored API keys can be literals or use `$VAR` / `${VAR}` references. Nonempty
+values in the credential's `env` object take precedence over the process
+environment. `$$` and `$!` escape a dollar sign and exclamation mark.
+Command-based keys (`!command`) are unsupported; use `QMETER_OPENCODE_GO_KEY`
+with the resolved key instead.
+
+Working native credentials are preferred. OpenCode Go checks `opencode.db`
+before the older `auth.json` store, with Pi following both native stores.
+If native credentials cannot be
+loaded, are expired, or the usage API rejects them with `401` or `403`, qmeter
+tries Pi. Rate limits, server errors, and timeouts do not trigger another
+credential attempt. Each subscription appears once under its existing provider
+name; when the stores belong to different accounts, the working native account
+wins. Claude credentials from Pi carry no plan name, so that field remains empty.
+
+Explicit `QMETER_CLAUDE_TOKEN`, `QMETER_CODEX_TOKEN` (with optional
+`QMETER_CODEX_ACCOUNT_ID`), and `QMETER_OPENCODE_GO_KEY` overrides remain
+authoritative, including when a request fails. qmeter reloads credentials on
+refresh and never writes or refreshes OAuth tokens itself; expired Pi tokens
+produce an `open pi to refresh` hint. Pi discovery covers this auth store and
+its key references, rather than custom extensions or `models.json`. Ordinary
+Anthropic/OpenAI API keys and OpenCode Zen keys are not subscription credentials
+for the providers above. Cursor continues using its native credential sources.
+
 ## Dashboard
 
 `qmeter` on its own opens a live dashboard: the wordmark pinned at the top, and

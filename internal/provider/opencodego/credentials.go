@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 )
 
 // storeEntryKey is the key under which OpenCode records the Zen "go" plan
@@ -191,7 +193,7 @@ func loadCredential(ctx context.Context, dbPath, authPath string) (string, error
 
 // credential resolves the API key for one call, applying the env override
 // first and OpenCode's local stores second (see loadCredential for that
-// order). The credential is a plain string: unlike Claude, neither store
+// order), with Pi as a fallback. The credential is a plain string: neither store
 // carries a plan name, so there is nothing else to keep.
 func (p *Provider) credential(ctx context.Context) (string, credstore.Source, error) {
 	load := func(ctx context.Context) (string, error) {
@@ -200,5 +202,21 @@ func (p *Provider) credential(ctx context.Context) (string, credstore.Source, er
 	// The override is used verbatim, exactly as credstore documents.
 	fromEnv := func(v string) (string, error) { return v, nil }
 
-	return credstore.Resolve(ctx, envVar, tool, load, fromEnv)
+	key, source, err := credstore.Resolve(ctx, envVar, tool, load, fromEnv)
+	if err == nil || ctx.Err() != nil {
+		return key, source, err
+	}
+	piKey, piErr := p.piKey()
+	if piauth.IsMissing(piErr) {
+		return key, source, err
+	}
+	if piErr != nil {
+		return "", credstore.SourceNone, piErr
+	}
+	return piKey, credstore.SourcePi, nil
+}
+
+func (p *Provider) piKey() (string, error) {
+	cred, err := piauth.Load(p.piCredentialPath, storeEntryKey, time.Now())
+	return cred.Key, err
 }

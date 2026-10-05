@@ -97,13 +97,13 @@ type Provider interface {
 	ID() string
 
 	// Detect reports whether a credential is resolvable without network
-	// I/O — either an env var override is set, or the vendor's local store
-	// exists and parses. When it returns false, the string is the
+	// I/O — either an env var override is set, or a native or compatible Pi
+	// store holds a credential. When it returns false, the string is the
 	// user-facing reason, shown as-is to the user; it must NOT include the
 	// provider name as a prefix (the caller already knows which provider it
 	// asked), e.g. "not logged in, run claude to log in", not "claude: not
 	// logged in, run claude to log in". The <tool> names used in every hint
-	// are: claude, codex, cursor-agent, opencode.
+	// are: claude, codex, cursor-agent, opencode, pi.
 	Detect(ctx context.Context) (bool, string)
 
 	// Fetch retrieves and normalizes the provider's current windows and
@@ -113,7 +113,7 @@ type Provider interface {
 
 // ErrNotLoggedIn indicates no usable credential was found — no env override
 // and no (or unparsable) vendor store. Tool is the CLI name used in the
-// "open <tool>" hint (one of: claude, codex, cursor-agent, opencode).
+// "open <tool>" hint (one of: claude, codex, cursor-agent, opencode, pi).
 //
 // Always return this by value (ErrNotLoggedIn{...}), never by pointer:
 // errors.As with a value target does not match a *ErrNotLoggedIn in the
@@ -137,7 +137,7 @@ func (e ErrNotLoggedIn) Is(target error) bool {
 
 // ErrTokenExpired indicates a credential was found but is expired or was
 // rejected by the vendor as unauthorized. Tool is the CLI name used in the
-// "open <tool>" hint (one of: claude, codex, cursor-agent, opencode).
+// "open <tool>" hint (one of: claude, codex, cursor-agent, opencode, pi).
 //
 // Always return this by value (ErrTokenExpired{...}), never by pointer:
 // errors.As with a value target does not match a *ErrTokenExpired in the

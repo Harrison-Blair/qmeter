@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
+	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
 	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
@@ -233,10 +234,21 @@ func (p *Provider) credentialPath() (string, error) {
 }
 
 // resolve runs the credential lookup order: QMETER_CLAUDE_TOKEN first, then
-// the local store. The Source tells the caller which step won — an env
-// override carries no plan name.
+// the local store, then Pi if the native lookup fails. The Source tells the
+// caller which step won; only the native store carries a plan name.
 func (p *Provider) resolve(ctx context.Context) (credential, credstore.Source, error) {
-	return credstore.Resolve(ctx, envVar, toolName, p.loadStore, fromEnv)
+	cred, source, err := credstore.Resolve(ctx, envVar, toolName, p.loadStore, fromEnv)
+	if err == nil || os.Getenv(envVar) != "" || ctx.Err() != nil {
+		return cred, source, err
+	}
+	piCred, piErr := p.loadPi()
+	if piauth.IsMissing(piErr) {
+		return cred, source, err
+	}
+	if piErr != nil {
+		return credential{}, credstore.SourceNone, piErr
+	}
+	return piCred, credstore.SourcePi, nil
 }
 
 // fromEnv turns the QMETER_CLAUDE_TOKEN value into a credential. The value is
@@ -331,4 +343,17 @@ func (p *Provider) parseStore(data []byte, source string) (credential, error) {
 		return credential{}, provider.ErrTokenExpired{Tool: toolName}
 	}
 	return credential{AccessToken: oauth.AccessToken, Plan: oauth.SubscriptionType}, nil
+}
+
+// loadPi reads subscription OAuth credentials without native plan metadata.
+func (p *Provider) loadPi() (credential, error) {
+	path := p.piCredPath
+	if path == "" {
+		path = piauth.DefaultPath()
+	}
+	cred, err := piauth.Load(path, "anthropic", p.now())
+	if err != nil {
+		return credential{}, err
+	}
+	return credential{AccessToken: cred.Access}, nil
 }
