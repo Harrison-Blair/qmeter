@@ -91,11 +91,16 @@ Dashboard flags:
   every provider is shown.
 - `--thickness N` sets the number of track rows from 1 through 9 (default 3).
   It overrides `meter_thickness` only when passed.
+- `--width N` sets complete gauge width, including caps, from 22 through 200
+  terminal cells. It overrides `meter_width` and applies with `--vertical`.
+  Gauges shrink when a single column cannot fit the requested width; two
+  columns are used only when both can fit it. Cards retain their full width,
+  with gauges and ledger rows centered inside them.
 - `--no-banner` replaces the wordmark with the one-line summary header.
 - `--vertical` stacks providers in one full-width column instead of the
-  automatic one-or-two-column grid.
+  automatic one-or-two-column grid. Gauges honor `--width` when supplied.
 
-The dashboard draws framed provider cards in one or two columns, with meters
+By default, the dashboard draws framed provider cards in one or two columns, with meters
 filling each card's inner width, leaving 18 cells for the frame, percentages,
 spacing and countdowns. Windows and status rows stay packed together and
 centred vertically; spare body rows are shared equally between card rows. A
@@ -109,8 +114,9 @@ its normal width-based fallback even in short terminals.
 
 The dashboard needs a terminal. Piped or redirected, `qmeter` prints the same
 table as `qmeter usage`, and `qmeter --json` prints the same JSON envelope;
-both still honour `--filter` and ignore `--vertical` and thickness. An out-of-range `--thickness` still fails
-before fetching. Colour follows [`NO_COLOR`](https://no-color.org).
+both still honour `--filter` and ignore `--vertical`, valid `--width`, and
+thickness. Out-of-range `--width` and `--thickness` values still fail before
+fetching. Colour follows [`NO_COLOR`](https://no-color.org).
 
 The `usage` and `pace` text tables use provider colors, remaining-allowance bands,
 cyan reset countdowns (red when rate limited), and colored status messages. Pace
@@ -158,14 +164,14 @@ dark = "#EDECEC"
 background. Colours must be six-digit hex values. `NO_COLOR` takes precedence
 over the configured palette and disables colour output.
 
-`meter_width` is the preferred complete meter width in terminal cells, from 22
+When `--width` is omitted, `meter_width` is the preferred complete meter width in terminal cells, from 22
 through 200. It decides when two columns fit: the dashboard uses two columns
 only when each card's inner width can hold 80% of the target, accounting for
 the card frames. Meters then stretch to the cards' inner width, beyond the
 configured preference if space permits, and a lone last card fills the page
 width. `--vertical` ignores `meter_width` and always uses one framed column
 (unframed below 40 columns). Timeline and calendar widths follow their own
-layouts regardless of `meter_width` or `--vertical`.
+layouts regardless of `meter_width`, `--vertical`, or `--width`.
 
 `meter_thickness` sets the number of track rows from 1 through 9, defaulting
 to 3. The track sits inside a closed frame and the needle stays on the bottom rail; the percentage and countdown sit

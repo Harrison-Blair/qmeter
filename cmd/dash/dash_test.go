@@ -454,3 +454,102 @@ func TestCmd_VerticalDoesNotChangeNonInteractiveOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestCmd_WidthAccepted(t *testing.T) {
+	tr := newTestRoot(t, true)
+	if err := tr.execute(t, "--width", "22"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCmd_WidthOptionsAndConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, width          string
+		invalidConfig        bool
+		wantMeter, wantGauge int
+	}{
+		{"omitted", "", false, 83, 0}, {"minimum", "22", false, 22, 22},
+		{"maximum", "200", false, 200, 200}, {"override fallback", "40", true, 40, 40},
+		{"default fallback", "", true, dconfig.DefaultMeterWidth, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := newTestRoot(t, true)
+			loadConfig = func() (dconfig.Settings, error) {
+				tr.configLoads++
+				s := dconfig.Default()
+				s.MeterWidth = 83
+				if tc.invalidConfig {
+					return s, errors.New("invalid config")
+				}
+				return s, nil
+			}
+			var args []string
+			if tc.width != "" {
+				args = []string{"--width", tc.width, "--vertical"}
+			}
+			if err := tr.execute(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			got := tr.runs[0]
+			if got.MeterWidth != tc.wantMeter || got.GaugeWidth != tc.wantGauge {
+				t.Fatalf("widths = %d/%d, want %d/%d", got.MeterWidth, got.GaugeWidth, tc.wantMeter, tc.wantGauge)
+			}
+			f := tr.cmd.Flags().Lookup("width")
+			if f == nil || f.DefValue != "0" || tr.cmd.PersistentFlags().Lookup("width") != nil {
+				t.Fatal("width must be root local and default to unset")
+			}
+		})
+	}
+}
+
+func TestCmd_InvalidWidthBeforeRegistry(t *testing.T) {
+	for _, width := range []string{"0", "-1", "21", "201", "nope"} {
+		for _, route := range []string{"terminal", "json", "pipe"} {
+			t.Run(width+route, func(t *testing.T) {
+				tr := newTestRoot(t, route != "pipe")
+				called := false
+				registry = func() []provider.Provider { called = true; return nil }
+				args := []string{"--width", width}
+				if route == "json" {
+					args = append(args, "--json")
+				}
+				err := tr.execute(t, args...)
+				if err == nil {
+					t.Fatal("invalid width accepted")
+				}
+				if called || tr.configLoads != 0 || len(tr.runs) != 0 || len(tr.fetched()) != 0 {
+					t.Fatal("invalid width reached collaborators")
+				}
+				if width != "nope" && tr.errOut.String() != "width must be between 22 and 200\n" {
+					t.Fatalf("stderr = %q", tr.errOut.String())
+				}
+			})
+		}
+	}
+}
+
+func TestCmd_WidthDoesNotChangeNonInteractiveOutput(t *testing.T) {
+	for _, asJSON := range []bool{false, true} {
+		var baseline string
+		for _, width := range []string{"", "22", "200"} {
+			tr := newTestRoot(t, asJSON)
+			args := []string{"--filter", "claude"}
+			if asJSON {
+				args = append(args, "--json")
+			}
+			if width != "" {
+				args = append(args, "--width", width)
+			}
+			if err := tr.execute(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			if tr.configLoads != 0 || len(tr.runs) != 0 {
+				t.Fatal("noninteractive entered dashboard")
+			}
+			if width != "" && tr.out.String() != baseline {
+				t.Fatal("width changed output")
+			}
+			baseline = tr.out.String()
+		}
+	}
+}

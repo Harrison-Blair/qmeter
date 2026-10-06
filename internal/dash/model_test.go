@@ -942,3 +942,36 @@ func TestVerticalSurvivesResizeAndScroll(t *testing.T) {
 		}
 	}
 }
+
+func TestGaugeWidthSurvivesResize(t *testing.T) {
+	m := New(Options{MeterWidth: 40, GaugeWidth: 40, Vertical: true, Now: func() time.Time { return now }})
+	m, _ = step(t, m, resultMsg{res: sample()})
+	t.Cleanup(func() {
+		if m.cancelRefresh != nil {
+			m.cancelRefresh()
+		}
+	})
+	for _, width := range []int{180, 39, 40, 80} {
+		m = resize(t, m, width, 100)
+		want := min(40, width-18)
+		if width < 40 {
+			want = min(40, width-14)
+		}
+		found := false
+		for _, line := range viewLines(t, m) {
+			if !strings.Contains(line, "┬") {
+				continue
+			}
+			start, end := strings.Index(line, "╭"), strings.Index(line, "╮")
+			if start >= 0 && end > start {
+				found = true
+				if got := runewidth.StringWidth(line[start:end]) + 1; got != want {
+					t.Fatalf("gauge at %d = %d, want %d", width, got, want)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no gauge rendered")
+		}
+	}
+}

@@ -95,6 +95,9 @@ type Options struct {
 	// then stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
+	// GaugeWidth caps complete gauge width in terminal cells. Zero lets gauges stretch.
+	GaugeWidth int
+
 	// MeterThickness is the number of track rows. Zero uses three rows.
 	MeterThickness int
 }
@@ -160,10 +163,21 @@ func Render(r usage.Result, width int, o Options) []string {
 	if cols == 2 && colw-4 < max(gauge.MinWidth, (target*4+4)/5)+pctWidth+1+1+cdWidth {
 		cols, colw, gutter = 1, width, 0
 	}
+	if o.GaugeWidth > 0 {
+		gutter = 2
+		if width >= wideGutterMin {
+			gutter = 4
+		}
+		if len(present) >= 2 && width >= 2*(o.GaugeWidth+pctWidth+1+1+cdWidth+4)+gutter {
+			cols, colw = 2, (width-gutter)/2
+		} else {
+			cols, colw, gutter = 1, width, 0
+		}
+	}
 	if o.Vertical {
 		cols, colw, gutter = 1, width, 0
 	}
-	return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight, thickness)...), width)
+	return finish(append(rows, fitSections(r, present, width, cols, colw, gutter, now, o.BodyHeight, thickness, o.GaugeWidth)...), width)
 }
 
 // columns is the page's column arithmetic: two columns only when there are at

@@ -140,3 +140,32 @@ func TestLedgerLeavesTimelineUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitGaugeWidthCentersLedger(t *testing.T) {
+	r := usage.Result{Windows: []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 68, RateLimited: true}}, Balances: []provider.Balance{{Provider: "claude", Name: "credits", Unit: "credits", Remaining: ledgerNumber(3.5)}}}
+	for _, width := range []int{36, 39, 40, 80, 180} {
+		o := opts(false)
+		o.GaugeWidth = 22
+		o.MeterWidth = 22
+		lines := layout.Render(r, width, o)
+		track := findLine(t, lines, "68.0%")
+		ledger := findLine(t, lines, "credits")
+		frame := 2
+		if width < 40 {
+			frame = 0
+		}
+		want := frame + (width-2*frame-36)/2 + 2
+		if runeColumn(ledger, "credits") != want {
+			t.Fatalf("ledger begins at %d, want %d", runeColumn(ledger, "credits"), want)
+		}
+		// The balance begins two cells into the same centered block as the right-aligned percentage.
+		if strings.Index(track, "68.0%")+1 != strings.Index(ledger, "credits") {
+			t.Fatalf("unaligned ledger at %d:\n%s\n%s", width, track, ledger)
+		}
+		for _, line := range lines {
+			if lipgloss.Width(line) != width {
+				t.Fatalf("overflow at %d: %s", width, line)
+			}
+		}
+	}
+}

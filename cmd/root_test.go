@@ -79,7 +79,7 @@ func TestRoot_RunsTheDashboardWithItsOwnFlags(t *testing.T) {
 	if root.RunE == nil {
 		t.Error("the root command has no behaviour of its own")
 	}
-	for _, name := range []string{"filter", "no-banner", "vertical"} {
+	for _, name := range []string{"filter", "no-banner", "vertical", "width"} {
 		if f := root.Flags().Lookup(name); f == nil {
 			t.Errorf("root has no --%s flag", name)
 		}
@@ -92,7 +92,7 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(--help): %v", err)
 	}
-	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--json"} {
+	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--width", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help does not mention %q:\n%s", want, out.String())
 		}
@@ -121,6 +121,18 @@ func TestFitFlagIsGone(t *testing.T) {
 		root.SetErr(&bytes.Buffer{})
 		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: "+args[len(args)-1]) {
 			t.Fatalf("%v accepted a fit flag: %v", args, err)
+		}
+	}
+}
+
+func TestWidthFlagIsRootLocal(t *testing.T) {
+	for _, name := range []string{"usage", "pace", "spend", "resets", "version", "update"} {
+		root := NewRootCmd()
+		root.SetArgs([]string{name, "--width", "50"})
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: --width") {
+			t.Fatalf("%s accepted width: %v", name, err)
 		}
 	}
 }
