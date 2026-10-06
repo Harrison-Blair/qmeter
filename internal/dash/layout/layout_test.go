@@ -954,3 +954,77 @@ func TestVerticalStretchesMetersInOneColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitGaugeWidthRendering(t *testing.T) {
+	for _, tc := range []struct {
+		width, cap, want, columns int
+		vertical                  bool
+	}{
+		{35, 22, 0, 0, false}, {36, 22, 22, 1, false}, {39, 22, 22, 1, false}, {40, 50, 22, 1, false},
+		{80, 50, 50, 1, false}, {139, 50, 50, 1, false}, {140, 50, 50, 2, false},
+		{117, 40, 40, 1, false}, {118, 40, 40, 2, false}, {119, 40, 40, 2, false}, {120, 40, 40, 2, false}, {119, 41, 41, 1, false}, {120, 41, 41, 1, false}, {122, 41, 41, 2, false},
+		{180, 50, 50, 2, false}, {180, 50, 50, 1, true}, {500, 200, 200, 2, false},
+	} {
+		t.Run(fmt.Sprintf("%d_%d_%t", tc.width, tc.cap, tc.vertical), func(t *testing.T) {
+			o := opts(false)
+			o.GaugeWidth = tc.cap
+			o.MeterWidth = tc.cap
+			o.Vertical = tc.vertical
+			lines := layout.Render(sample(), tc.width, o)
+			if tc.columns == 0 {
+				if strings.TrimSpace(lines[0]) != "terminal too narrow" {
+					t.Fatal(lines)
+				}
+				return
+			}
+			first := findLine(t, lines, "◆ claude")
+			two := strings.Contains(first, "● codex")
+			if two != (tc.columns == 2) {
+				t.Fatalf("columns wrong: %s", first)
+			}
+			widths := renderedGaugeWidths(lines)
+			if len(widths) == 0 {
+				t.Fatal("no gauges")
+			}
+			for _, w := range widths {
+				if w != tc.want {
+					t.Fatalf("widths = %v, want %d", widths, tc.want)
+				}
+			}
+			for _, line := range lines {
+				if runewidth.StringWidth(line) != tc.width {
+					t.Fatalf("line width %d, want %d", runewidth.StringWidth(line), tc.width)
+				}
+			}
+		})
+	}
+}
+
+func TestExplicitGaugeWidthOddProviderAndOtherViews(t *testing.T) {
+	r := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: "5h", RemainingPercent: 68},
+		{Provider: "codex", Name: "weekly", RemainingPercent: 50},
+		{Provider: "cursor", Name: "total", RemainingPercent: 50, RateLimited: true},
+	}}
+	o := opts(false)
+	o.MeterWidth = 40
+	o.GaugeWidth = 40
+	widths := renderedGaugeWidths(layout.Render(r, 180, o))
+	if len(widths) != 3 {
+		t.Fatalf("missing gauges: %v", widths)
+	}
+	for _, w := range widths {
+		if w != 40 {
+			t.Fatalf("uncapped gauge: %v", widths)
+		}
+	}
+	for _, draw := range []func(usage.Result, int, layout.Options) []string{layout.RenderTimeline, layout.RenderCalendar} {
+		before := draw(r, 180, o)
+		o.GaugeWidth = 0
+		after := draw(r, 180, o)
+		if strings.Join(before, "\n") != strings.Join(after, "\n") {
+			t.Fatal("width changed alternate view")
+		}
+		o.GaugeWidth = 40
+	}
+}

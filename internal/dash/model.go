@@ -105,6 +105,9 @@ type Options struct {
 	// stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
+	// GaugeWidth caps complete gauge width in terminal cells. Zero lets gauges stretch.
+	GaugeWidth int
+
 	// MeterThickness is the number of track rows. Zero uses three rows.
 	MeterThickness int
 
@@ -133,6 +136,7 @@ type Model struct {
 	calendar          bool
 	theme             theme.Theme
 	meterWidth        int
+	gaugeWidth        int
 	meterThickness    int
 	refreshInterval   time.Duration
 	refreshGeneration uint64
@@ -175,6 +179,7 @@ func New(o Options) Model {
 		vertical:        o.Vertical,
 		theme:           o.Theme,
 		meterWidth:      o.MeterWidth,
+		gaugeWidth:      o.GaugeWidth,
 		meterThickness:  o.MeterThickness,
 		refreshInterval: o.RefreshInterval,
 		now:             o.Now,
@@ -378,6 +383,7 @@ func (m Model) frame() (header, body []string, fits int) {
 		Now:            m.now(),
 		Theme:          m.theme,
 		MeterWidth:     m.meterWidth,
+		GaugeWidth:     m.gaugeWidth,
 		MeterThickness: m.meterThickness,
 	})
 

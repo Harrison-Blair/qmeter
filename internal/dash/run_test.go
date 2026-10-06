@@ -39,12 +39,13 @@ func TestRunOptionsReachModelOptions(t *testing.T) {
 		Vertical:        true,
 		Theme:           th,
 		MeterWidth:      83,
+		GaugeWidth:      83,
 		RefreshInterval: 17 * time.Second,
 	})
 	if got.Ctx != ctx || !got.Banner || !got.Vertical || len(got.Providers) != 1 || got.Providers[0] != p {
 		t.Errorf("model options lost run state: %#v", got)
 	}
-	if got.Theme != th || got.MeterWidth != 83 {
+	if got.Theme != th || got.MeterWidth != 83 || got.GaugeWidth != 83 {
 		t.Errorf("model appearance = (%#v, %d), want (%#v, 83)", got.Theme, got.MeterWidth, th)
 	}
 	if got.RefreshInterval != 17*time.Second {

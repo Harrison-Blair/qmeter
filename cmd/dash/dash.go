@@ -40,7 +40,8 @@ func Attach(root *cobra.Command) {
 	root.Flags().StringSlice("filter", nil, "show only these providers ("+validProviders+")")
 	root.Flags().Bool("no-banner", false, "hide the qmeter wordmark")
 	root.Flags().Int("thickness", dconfig.DefaultMeterThickness, fmt.Sprintf("number of meter track rows (%d–%d)", dconfig.MinMeterThickness, dconfig.MaxMeterThickness))
-	root.Flags().Bool("vertical", false, "stack providers vertically with full-width meters")
+	root.Flags().Bool("vertical", false, "stack providers vertically (meters honor --width)")
+	root.Flags().Int("width", 0, fmt.Sprintf("gauge width including caps, in terminal cells (%d–%d); overrides meter_width, shrinks to fit", dconfig.MinMeterWidth, dconfig.MaxMeterWidth))
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		names, err := cmd.Flags().GetStringSlice("filter")
@@ -61,6 +62,16 @@ func Attach(root *cobra.Command) {
 		}
 		if thickness < dconfig.MinMeterThickness || thickness > dconfig.MaxMeterThickness {
 			msg := fmt.Sprintf("thickness must be between %d and %d", dconfig.MinMeterThickness, dconfig.MaxMeterThickness)
+			fmt.Fprintln(cmd.ErrOrStderr(), msg)
+			cmd.SilenceErrors = true
+			return errors.New(msg)
+		}
+		width, err := cmd.Flags().GetInt("width")
+		if err != nil {
+			return err
+		}
+		if cmd.Flags().Changed("width") && (width < dconfig.MinMeterWidth || width > dconfig.MaxMeterWidth) {
+			msg := fmt.Sprintf("width must be between %d and %d", dconfig.MinMeterWidth, dconfig.MaxMeterWidth)
 			fmt.Fprintln(cmd.ErrOrStderr(), msg)
 			cmd.SilenceErrors = true
 			return errors.New(msg)
@@ -110,6 +121,9 @@ func Attach(root *cobra.Command) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", configErr)
 			settings = dconfig.Default()
 		}
+		if cmd.Flags().Changed("width") {
+			settings.MeterWidth = width
+		}
 		if cmd.Flags().Changed("thickness") {
 			settings.MeterThickness = thickness
 		}
@@ -119,6 +133,7 @@ func Attach(root *cobra.Command) {
 			Vertical:        vertical,
 			Theme:           settings.Theme,
 			MeterWidth:      settings.MeterWidth,
+			GaugeWidth:      width,
 			MeterThickness:  settings.MeterThickness,
 			RefreshInterval: settings.RefreshInterval,
 		}); err != nil {

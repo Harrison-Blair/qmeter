@@ -34,6 +34,9 @@ type RunOptions struct {
 	// stretch to their card. Vertical always uses one column.
 	MeterWidth int
 
+	// GaugeWidth caps complete gauge width in terminal cells. Zero lets gauges stretch.
+	GaugeWidth int
+
 	// MeterThickness is the number of track rows. Zero uses three rows.
 	MeterThickness int
 
@@ -84,6 +87,7 @@ func modelOptions(ctx context.Context, opts RunOptions) Options {
 		Vertical:        opts.Vertical,
 		Theme:           opts.Theme,
 		MeterWidth:      opts.MeterWidth,
+		GaugeWidth:      opts.GaugeWidth,
 		MeterThickness:  opts.MeterThickness,
 		RefreshInterval: opts.RefreshInterval,
 		Ctx:             ctx,
