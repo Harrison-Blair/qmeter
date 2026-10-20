@@ -4,13 +4,27 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
+	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
+	"github.com/charmbracelet/lipgloss"
 )
+
+var (
+	destinationRenderer = display.Renderer
+	queryBackground     = func(r *lipgloss.Renderer) bool { return r.HasDarkBackground() }
+)
+
+func newDashboardRenderer(w io.Writer) *lipgloss.Renderer {
+	r := destinationRenderer(w)
+	r.SetHasDarkBackground(queryBackground(r))
+	return r
+}
 
 // RunOptions are the dashboard's run-time choices and terminal streams.
 type RunOptions struct {
@@ -43,7 +57,12 @@ func Run(ctx context.Context, opts RunOptions) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	model := New(modelOptions(ctx, opts))
+	output := opts.Output
+	if output == nil {
+		output = os.Stdout
+	}
+	renderer := newDashboardRenderer(output)
+	model := New(modelOptions(ctx, opts, renderer))
 
 	popts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}
 	if opts.Input != nil {
@@ -62,11 +81,12 @@ func Run(ctx context.Context, opts RunOptions) error {
 	return nil
 }
 
-func modelOptions(ctx context.Context, opts RunOptions) Options {
+func modelOptions(ctx context.Context, opts RunOptions, renderer *lipgloss.Renderer) Options {
 	return Options{
 		Providers:       opts.Providers,
 		Theme:           opts.Theme,
 		RefreshInterval: opts.RefreshInterval,
 		Ctx:             ctx,
+		Renderer:        renderer,
 	}
 }
