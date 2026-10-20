@@ -148,6 +148,95 @@ func TestRefreshKeyStartsOneFetchAndIgnoresRepeatedRefresh(t *testing.T) {
 	}
 }
 
+func TestCombinedKeyRunesDispatchDashboardKeys(t *testing.T) {
+	t.Run("quit", func(t *testing.T) {
+		m := shown(t, sample(), 140, 45)
+		_, cmd := step(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rq")})
+		if cmd == nil {
+			t.Fatal("combined r and q input returned no command")
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("combined r and q input returned %T, want tea.QuitMsg", cmd())
+		}
+	})
+
+	t.Run("refresh", func(t *testing.T) {
+		m := shown(t, sample(), 140, 45)
+		updated, cmd := step(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ar")})
+		if cmd == nil || !updated.loading {
+			t.Fatal("r in combined input did not start a refresh")
+		}
+		if !strings.Contains(updated.View(), "refreshing · q quit") {
+			t.Fatal("r in combined input did not show the refresh state")
+		}
+	})
+
+	t.Run("paste does not activate keys", func(t *testing.T) {
+		m := shown(t, sample(), 140, 45)
+		updated, cmd := step(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rq"), Paste: true})
+		if cmd != nil || updated.loading {
+			t.Fatal("pasted text activated a dashboard key")
+		}
+	})
+}
+
+func TestQuitKeysWorkAcrossDashboardStates(t *testing.T) {
+	states := []struct {
+		name  string
+		model func() Model
+	}{
+		{
+			name: "first fetch",
+			model: func() Model {
+				return resize(t, New(Options{}), 140, 45)
+			},
+		},
+		{
+			name: "manual refresh",
+			model: func() Model {
+				m, _ := press(t, shown(t, sample(), 140, 45), "r")
+				return m
+			},
+		},
+		{
+			name: "automatic refresh",
+			model: func() Model {
+				m := shown(t, sample(), 140, 45)
+				m, _ = step(t, m, refreshMsg{generation: m.refreshGeneration})
+				return m
+			},
+		},
+		{
+			name: "resized",
+			model: func() Model {
+				return resize(t, shown(t, sample(), 140, 45), 200, 60)
+			},
+		},
+	}
+
+	for _, state := range states {
+		for _, key := range []struct {
+			name string
+			msg  tea.KeyMsg
+		}{
+			{name: "combined rq", msg: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rq")}},
+			{name: "esc", msg: keyMsg("esc")},
+			{name: "ctrl+c", msg: keyMsg("ctrl+c")},
+		} {
+			t.Run(state.name+"/"+key.name, func(t *testing.T) {
+				_, cmd := step(t, state.model(), key.msg)
+				if cmd == nil {
+					t.Fatalf("%q returned no quit command", key.name)
+				}
+				msg := cmd()
+				if _, ok := msg.(tea.QuitMsg); !ok {
+					t.Fatalf("%q returned %T, want tea.QuitMsg", key.name, msg)
+				}
+			})
+		}
+	}
+}
+
 func TestQuitKeysReturnQuitAndCancelRefreshTimer(t *testing.T) {
 	for _, key := range []string{"q", "esc", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
