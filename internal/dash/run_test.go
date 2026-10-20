@@ -7,12 +7,14 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // runOpts wires a fake provider and in-memory terminal streams.
@@ -26,17 +28,105 @@ func runOpts(in string, out *bytes.Buffer, p provider.Provider) RunOptions {
 
 type runContextKey struct{}
 
+type backgroundCheckingInput struct {
+	reader    io.Reader
+	queries   *atomic.Int32
+	premature chan struct{}
+}
+
+func (r backgroundCheckingInput) Read(p []byte) (int, error) {
+	if r.queries.Load() == 0 {
+		select {
+		case r.premature <- struct{}{}:
+		default:
+		}
+	}
+	return r.reader.Read(p)
+}
+
+func TestRunPreparesOneDestinationRendererBeforeReadingInput(t *testing.T) {
+	oldFactory, oldQuery := destinationRenderer, queryBackground
+	t.Cleanup(func() {
+		destinationRenderer, queryBackground = oldFactory, oldQuery
+	})
+
+	var factoryCalls, queryCalls atomic.Int32
+	var renderer *lipgloss.Renderer
+	var out bytes.Buffer
+	destinationRenderer = func(w io.Writer) *lipgloss.Renderer {
+		factoryCalls.Add(1)
+		if w != &out {
+			t.Errorf("renderer destination = %T, want the Run output", w)
+		}
+		renderer = oldFactory(w)
+		return renderer
+	}
+	queryBackground = func(*lipgloss.Renderer) bool {
+		queryCalls.Add(1)
+		return true
+	}
+	premature := make(chan struct{}, 1)
+	input := backgroundCheckingInput{
+		reader:    strings.NewReader("q"),
+		queries:   &queryCalls,
+		premature: premature,
+	}
+	fake := providertest.Succeeding("claude", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := Run(ctx, RunOptions{
+		Providers: []provider.Provider{fake},
+		Input:     input,
+		Output:    &out,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := factoryCalls.Load(); got != 1 {
+		t.Errorf("renderer factory calls = %d, want 1", got)
+	}
+	if got := queryCalls.Load(); got != 1 {
+		t.Errorf("background query calls = %d, want 1", got)
+	}
+	if renderer == nil || !renderer.HasDarkBackground() {
+		t.Error("renderer did not keep the detected light/dark choice")
+	}
+	select {
+	case <-premature:
+		t.Error("Bubble Tea read input before background detection")
+	default:
+	}
+}
+
+func TestNewDashboardRendererKeepsDetectedBackground(t *testing.T) {
+	oldFactory, oldQuery := destinationRenderer, queryBackground
+	t.Cleanup(func() {
+		destinationRenderer, queryBackground = oldFactory, oldQuery
+	})
+	destinationRenderer = func(w io.Writer) *lipgloss.Renderer {
+		return lipgloss.NewRenderer(w)
+	}
+	for _, wantDark := range []bool{false, true} {
+		queryBackground = func(*lipgloss.Renderer) bool { return wantDark }
+		renderer := newDashboardRenderer(io.Discard)
+		if got := renderer.HasDarkBackground(); got != wantDark {
+			t.Errorf("HasDarkBackground() = %t, want %t", got, wantDark)
+		}
+	}
+}
+
 func TestRunOptionsReachModelOptions(t *testing.T) {
 	ctx := context.WithValue(context.Background(), runContextKey{}, "bounded")
 	th := theme.Default()
 	th.Cursor.Dark = "#010203"
 	p := providertest.Succeeding("cursor", nil)
 
+	renderer := lipgloss.NewRenderer(io.Discard)
+	renderer.SetHasDarkBackground(true)
 	got := modelOptions(ctx, RunOptions{
 		Providers:       []provider.Provider{p},
 		Theme:           th,
 		RefreshInterval: 17 * time.Second,
-	})
+	}, renderer)
 	if got.Ctx != ctx || len(got.Providers) != 1 || got.Providers[0] != p {
 		t.Errorf("model options lost run state: %#v", got)
 	}
@@ -45,6 +135,9 @@ func TestRunOptionsReachModelOptions(t *testing.T) {
 	}
 	if got.RefreshInterval != 17*time.Second {
 		t.Errorf("model refresh interval = %s, want 17s", got.RefreshInterval)
+	}
+	if got.Renderer != renderer {
+		t.Errorf("model renderer = %p, want %p", got.Renderer, renderer)
 	}
 }
 
