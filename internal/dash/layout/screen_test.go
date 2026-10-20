@@ -56,8 +56,10 @@ func TestScreenGoldenFrames(t *testing.T) {
 		{"93x30", 93, 30},
 		{"93x26", 93, 26},
 		{"80x24", 80, 24},
-		{"60x40", 60, 40},
 		{"79x23", 79, 23},
+		{"79x45", 79, 45},
+		{"140x23", 140, 23},
+		{"60x40", 60, 40},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,6 +75,42 @@ func TestScreenGoldenFrames(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestScreenBelowFloorShowsOnlyTooSmallMessage(t *testing.T) {
+	options := screenOptions()
+	loading := options
+	loading.FetchedAt = time.Time{}
+	loading.Loading = true
+	for _, content := range []struct {
+		name    string
+		result  usage.Result
+		options layout.ScreenOptions
+	}{
+		{name: "result", result: boardScreenFixture(), options: options},
+		{name: "loading", options: loading},
+		{name: "empty", options: options},
+	} {
+		for _, size := range []struct{ width, height int }{{79, 23}, {79, 45}, {140, 23}, {60, 40}} {
+			t.Run(fmt.Sprintf("%s/%dx%d", content.name, size.width, size.height), func(t *testing.T) {
+				frame := layout.Screen(content.result, size.width, size.height, content.options)
+				if len(frame) != size.height {
+					t.Fatalf("got %d lines, want %d", len(frame), size.height)
+				}
+				message := fmt.Sprintf("terminal too small: %dx%d, need 80x24", size.width, size.height)
+				for i, line := range frame {
+					plain := strings.TrimSpace(ansi.Strip(line))
+					if i == size.height/2 {
+						if plain != message {
+							t.Errorf("center line = %q, want %q", plain, message)
+						}
+					} else if plain != "" {
+						t.Errorf("line %d = %q, want blank", i+1, plain)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -105,39 +143,40 @@ func TestScreenFrameFitsEveryDimension(t *testing.T) {
 }
 
 func TestScreenDropsPartsInMeasuredOrder(t *testing.T) {
+	var windows []provider.Window
+	for _, providerID := range []string{"claude", "codex"} {
+		for i := 0; i < 8; i++ {
+			windows = append(windows, provider.Window{
+				Provider: providerID, Name: fmt.Sprintf("window-%d", i+1),
+				Plan: "pro", RemainingPercent: float64(80 - i), ResetsAt: now.Add(time.Duration(i+1) * time.Hour),
+			})
+		}
+	}
 	result := usage.Result{
-		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 80, ResetsAt: now.Add(time.Hour)},
-			{Provider: "codex", Name: "weekly", Plan: "pro", RemainingPercent: 60, ResetsAt: now.Add(2 * time.Hour)},
-		},
+		Windows:  windows,
 		Balances: []provider.Balance{{Provider: "codex", Name: "credits", Unit: "credits", Remaining: screenNumber(4)}},
 	}
-	for _, tc := range []struct {
-		height               int
-		resets, money, cards bool
-		tooSmall             bool
-	}{
-		{height: 11, resets: true, money: true, cards: true},
-		{height: 10, money: true, cards: true},
-		{height: 9, cards: true},
-		{height: 8, cards: true},
-		{height: 7, cards: true},
-		{height: 6, cards: true},
-		{height: 5, tooSmall: true},
-	} {
-		frame := layout.Screen(result, 100, tc.height, screenOptions())
-		text := strings.Join(frame, "\n")
-		if got := strings.Contains(text, "│ resets"); got != tc.resets {
-			t.Errorf("height %d: resets panel = %v, want %v", tc.height, got, tc.resets)
+	for height := 46; height >= 23; height-- {
+		text := strings.Join(layout.Screen(result, 100, height, screenOptions()), "\n")
+		wantResets := height == 46
+		wantBalances := height >= 31
+		wantCards := height >= 27
+		wantCompact := height >= 24 && height <= 26
+		wantTooSmall := height < 24
+		if got := strings.Contains(text, "│ resets"); got != wantResets {
+			t.Errorf("height %d: resets panel = %v, want %v", height, got, wantResets)
 		}
-		if got := strings.Contains(text, "│ balances"); got != tc.money {
-			t.Errorf("height %d: balances panel = %v, want %v", tc.height, got, tc.money)
+		if got := strings.Contains(text, "│ balances"); got != wantBalances {
+			t.Errorf("height %d: balances panel = %v, want %v", height, got, wantBalances)
 		}
-		if got := strings.Contains(text, "terminal too small:"); got != tc.tooSmall {
-			t.Errorf("height %d: too-small message = %v, want %v", tc.height, got, tc.tooSmall)
+		if got := strings.Contains(text, "terminal too small:"); got != wantTooSmall {
+			t.Errorf("height %d: too-small message = %v, want %v", height, got, wantTooSmall)
 		}
-		if got := strings.Contains(text, "╭─"); got != tc.cards {
-			t.Errorf("height %d: cards = %v, want %v", tc.height, got, tc.cards)
+		if got := strings.Contains(text, "╭─"); got != wantCards {
+			t.Errorf("height %d: cards = %v, want %v", height, got, wantCards)
+		}
+		if got := strings.Contains(text, "codex window-1"); got != wantCompact {
+			t.Errorf("height %d: compact rows = %v, want %v", height, got, wantCompact)
 		}
 	}
 }

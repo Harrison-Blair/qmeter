@@ -67,16 +67,14 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 		now = time.Now()
 	}
 	providers := presentProviders(result, options.Theme)
+	if width < screenFloorWidth || height < screenFloorHeight {
+		needWidth, needHeight := compactNeed(result, now, renderer)
+		return tooSmallFrame(width, height, needWidth, needHeight)
+	}
 	if options.FetchedAt.IsZero() {
-		if width < screenFloorWidth || height < screenFloorHeight {
-			return tooSmallFrame(width, height, screenFloorWidth, screenFloorHeight)
-		}
 		return centeredBodyFrame(width, height, headerLine(result, len(providers), width, options, renderer), "fetching…", keyLine(options, width, renderer))
 	}
 	if len(providers) == 0 {
-		if width < screenFloorWidth || height < screenFloorHeight {
-			return tooSmallFrame(width, height, screenFloorWidth, screenFloorHeight)
-		}
 		return centeredBodyFrame(width, height, headerLine(result, 0, width, options, renderer), "no providers detected", keyLine(options, width, renderer))
 	}
 
