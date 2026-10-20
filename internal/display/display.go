@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -19,20 +21,6 @@ const (
 	Neutral     lipgloss.Color = "8"
 	RateLimited lipgloss.Color = "1"
 )
-
-// PaceColor is shared by the CLI status and dashboard badge.
-func PaceColor(status string) lipgloss.Color {
-	switch status {
-	case "behind":
-		return "208"
-	case "on pace":
-		return "10"
-	case "ahead":
-		return "11"
-	default:
-		return Neutral
-	}
-}
 
 // Band reports remaining-allowance health; rate limiting overrides the band.
 func Band(pct float64, limited bool) lipgloss.Color {
@@ -112,20 +100,34 @@ func Table(w io.Writer, rows [][]Cell) error {
 func ProviderCell(r *lipgloss.Renderer, id string) Cell {
 	return Cell{id, r.NewStyle().Foreground(Default().Accent(id))}
 }
-func RemainingCell(r *lipgloss.Renderer, pct float64, limited bool) Cell {
-	return Cell{fmt.Sprintf("%.1f%%", pct), r.NewStyle().Foreground(Band(pct, limited))}
-}
-func ResetCell(r *lipgloss.Renderer, text string, limited bool) Cell {
-	color := Countdown
-	if limited {
-		color = RateLimited
-	}
-	return Cell{text, r.NewStyle().Foreground(color)}
-}
 func Header(r *lipgloss.Renderer, names ...string) []Cell {
 	cells := make([]Cell, len(names))
 	for i, name := range names {
 		cells[i] = Cell{name, r.NewStyle().Bold(true)}
 	}
 	return cells
+}
+
+// BalanceAmounts formats a balance's remaining amount and limit.
+func BalanceAmounts(b provider.Balance) (left, limit string) {
+	left, limit = balanceAmount(b.Remaining, b.Unit), balanceAmount(b.Limit, b.Unit)
+	if b.Unlimited {
+		left = "unlimited"
+	}
+	return left, limit
+}
+
+func balanceAmount(value *float64, unit string) string {
+	if value == nil {
+		return "-"
+	}
+	if unit == "usd" {
+		return fmt.Sprintf("$%.2f", *value)
+	}
+	// Two decimals remove float noise; trimming trailing zeroes keeps whole values short.
+	text := strings.TrimSuffix(strings.TrimRight(strconv.FormatFloat(*value, 'f', 2, 64), "0"), ".")
+	if unit == "percent" {
+		text += "%"
+	}
+	return text
 }

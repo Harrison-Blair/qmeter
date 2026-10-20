@@ -2,10 +2,12 @@ package usage
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -16,36 +18,96 @@ import (
 // countdown is deterministic.
 var renderNow = time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 
-// goldenBlock is the exact golden text output this package renders, per the
-// layout contract in renderText's doc comment. It is the real output of
-// tabwriter.NewWriter(out, 0, 8, 2, ' ', 0) — do not hand-align it.
-const goldenBlock = "" +
-	"PROVIDER     WINDOW   PLAN  REMAINING  RESETS\n" +
-	"claude       5h       max   58.0%      in 2h13m\n" +
-	"claude       weekly   max   81.5%      in 3d4h\n" +
-	"opencode-go  monthly  go    0.0%       in 12d  (rate limited)\n" +
-	"cursor       total    free  95.5%      in 7d22h\n" +
-	"codex        error: token expired, open codex to refresh\n"
-
-func TestRenderText_MatchesGoldenOutputBlock(t *testing.T) {
-	res := Result{
-		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 58.0, ResetsAt: renderNow.Add(2*time.Hour + 13*time.Minute)},
-			{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 81.5, ResetsAt: renderNow.Add(3*24*time.Hour + 4*time.Hour)},
-			{Provider: "opencode-go", Name: "monthly", Plan: "go", RemainingPercent: 0.0, ResetsAt: renderNow.Add(12 * 24 * time.Hour), RateLimited: true},
-			{Provider: "cursor", Name: "total", Plan: "free", RemainingPercent: 95.5, ResetsAt: renderNow.Add(7*24*time.Hour + 22*time.Hour)},
-		},
-		Errors: []ProviderError{
-			{Provider: "codex", Message: "token expired, open codex to refresh"},
-		},
-	}
-
+func TestRenderText_RendersA5ProviderCard(t *testing.T) {
+	res := Result{Windows: []provider.Window{{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 80}}}
 	var out bytes.Buffer
 	if err := renderText(&out, res, renderNow); err != nil {
-		t.Fatalf("renderText: %v", err)
+		t.Fatal(err)
 	}
-	if got := out.String(); got != goldenBlock {
-		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, goldenBlock)
+	want := "╭─ ◆ claude " + strings.Repeat("─", 61) + " max ─╮\n" +
+		"│ ▸ weekly" + strings.Repeat(" ", 52) + "80.0% · resets - │\n" +
+		"│ " + strings.Repeat("━", 61) + strings.Repeat("─", 15) + " │\n" +
+		"╰" + strings.Repeat("─", 78) + "╯\n"
+	if got := out.String(); got != want {
+		t.Fatalf("card output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRenderText_NarrowWidthStillPrintsCard(t *testing.T) {
+	res := Result{Windows: []provider.Window{{Provider: "claude", Name: "weekly", RemainingPercent: 80}}}
+	var out bytes.Buffer
+	if err := renderTextAtWidth(&out, res, renderNow, 20, display.Renderer(&out)); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 4 || !strings.Contains(out.String(), "▸ weekly") {
+		t.Fatalf("narrow output did not draw the card: %q", out.String())
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got != 20 {
+			t.Errorf("line %d width = %d, want 20: %q", i, got, line)
+		}
+	}
+}
+
+func TestRenderText_CardsGoldenWidths(t *testing.T) {
+	credit := 1.5
+	res := Result{
+		Windows: []provider.Window{
+			{Provider: "claude", Name: strings.Repeat("界", 30), Plan: "max", RemainingPercent: 80, ResetsAt: renderNow.Add(2 * time.Hour)},
+			{Provider: "claude", Name: "weekly", Plan: "max", RemainingPercent: 0, RateLimited: true},
+		},
+		Balances:   []provider.Balance{{Provider: "opencode-go", Name: "credit pack", Unit: "usd", Remaining: &credit}},
+		Errors:     []ProviderError{{Provider: "codex", Message: "offline"}},
+		Undetected: []ProviderError{{Provider: "cursor", Message: "not logged in"}},
+	}
+	body := func(text string, width int) string {
+		padding := width - 4 - lipgloss.Width(text)
+		if padding < 0 {
+			t.Fatalf("golden body exceeds %d cells: %q", width, text)
+		}
+		return "│ " + text + strings.Repeat(" ", padding) + " │"
+	}
+	bottom := func(width int) string { return "╰" + strings.Repeat("─", width-2) + "╯" }
+	long := strings.Repeat("界", 30)
+	want80 := "╭─ ◆ claude " + strings.Repeat("─", 61) + " max ─╮\n" +
+		body("▸ "+long+" 80.0% · 2h", 80) + "\n" +
+		body(strings.Repeat("━", 61)+strings.Repeat("─", 15), 80) + "\n" +
+		body("", 80) + "\n" +
+		body("▸ weekly"+strings.Repeat(" ", 38)+"0.0% · resets - · rate limited", 80) + "\n" +
+		body(strings.Repeat("─", 76), 80) + "\n" + bottom(80) + "\n" +
+		"╭─ ● codex " + strings.Repeat("─", 64) + " - ─╮\n" +
+		body("error: offline", 80) + "\n" + bottom(80) + "\n" +
+		"╭─ ○ opencode-go " + strings.Repeat("─", 58) + " - ─╮\n" +
+		body("credit pack $1.50", 80) + "\n" + bottom(80) + "\n" +
+		"╭─ ▲ cursor " + strings.Repeat("─", 63) + " - ─╮\n" +
+		body("not detected: not logged in", 80) + "\n" + bottom(80) + "\n"
+	long120 := strings.Repeat("界", 20) + "…"
+	blank59 := body("", 59)
+	want120 := "╭─ ◆ claude " + strings.Repeat("─", 40) + " max ─╮  " + "╭─ ● codex " + strings.Repeat("─", 43) + " - ─╮\n" +
+		body("▸ "+long120+"  80.0% · 2h", 59) + "  " + body("error: offline", 59) + "\n" +
+		body(strings.Repeat("━", 44)+strings.Repeat("─", 11), 59) + "  " + blank59 + "\n" +
+		blank59 + "  " + blank59 + "\n" +
+		body("▸ weekly"+strings.Repeat(" ", 17)+"0.0% · resets - · rate limited", 59) + "  " + blank59 + "\n" +
+		body(strings.Repeat("─", 55), 59) + "  " + blank59 + "\n" +
+		bottom(59) + "  " + bottom(59) + "\n" +
+		"╭─ ○ opencode-go " + strings.Repeat("─", 37) + " - ─╮  " + "╭─ ▲ cursor " + strings.Repeat("─", 42) + " - ─╮\n" +
+		body("credit pack $1.50", 59) + "  " + body("not detected: not logged in", 59) + "\n" +
+		bottom(59) + "  " + bottom(59) + "\n"
+
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{{80, want80}, {120, want120}} {
+		t.Run(strconv.Itoa(tc.width), func(t *testing.T) {
+			var out bytes.Buffer
+			if err := renderTextAtWidth(&out, res, renderNow, tc.width, display.Renderer(&out)); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.want {
+				t.Fatalf("width %d mismatch\n got:\n%s\nwant:\n%s", tc.width, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -57,86 +119,6 @@ func TestRenderText_NoProvidersDetectedLine(t *testing.T) {
 	const want = "no providers detected\n"
 	if got := out.String(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
-	}
-}
-
-func TestRenderText_FailureLineIsTwoCellPaddedRow(t *testing.T) {
-	res := Result{
-		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h", Plan: "max", RemainingPercent: 58.0},
-		},
-		Errors: []ProviderError{
-			{Provider: "codex", Message: "token expired, open codex to refresh"},
-		},
-	}
-
-	var out bytes.Buffer
-	if err := renderText(&out, res, renderNow); err != nil {
-		t.Fatalf("renderText: %v", err)
-	}
-	// The failure line's PROVIDER cell is padded to the widest provider
-	// name printed, while its message — a non-tab-terminated last cell —
-	// is excluded from the WINDOW column's width.
-	want := "" +
-		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
-		"claude    5h      max   58.0%      -\n" +
-		"codex     error: token expired, open codex to refresh\n"
-	if got := out.String(); got != want {
-		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestRenderText_NotDetectedLineIsTwoCellPaddedRow(t *testing.T) {
-	res := Result{
-		Undetected: []ProviderError{
-			{Provider: "codex", Message: "not logged in, run codex to log in"},
-		},
-	}
-
-	var out bytes.Buffer
-	if err := renderText(&out, res, renderNow); err != nil {
-		t.Fatalf("renderText: %v", err)
-	}
-	want := "" +
-		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
-		"codex     not detected: not logged in, run codex to log in\n"
-	if got := out.String(); got != want {
-		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestRenderText_DashForEmptyPlanAndZeroResets(t *testing.T) {
-	res := Result{
-		Windows: []provider.Window{
-			{Provider: "claude", Name: "5h"},
-		},
-	}
-
-	var out bytes.Buffer
-	if err := renderText(&out, res, renderNow); err != nil {
-		t.Fatalf("renderText: %v", err)
-	}
-	want := "" +
-		"PROVIDER  WINDOW  PLAN  REMAINING  RESETS\n" +
-		"claude    5h      -     0.0%       -\n"
-	if got := out.String(); got != want {
-		t.Fatalf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestRenderText_RateLimitedSuffixOnDashResets(t *testing.T) {
-	res := Result{
-		Windows: []provider.Window{
-			{Provider: "opencode-go", Name: "monthly", Plan: "go", RemainingPercent: 0, RateLimited: true},
-		},
-	}
-
-	var out bytes.Buffer
-	if err := renderText(&out, res, renderNow); err != nil {
-		t.Fatalf("renderText: %v", err)
-	}
-	if !strings.HasSuffix(out.String(), "-  (rate limited)\n") {
-		t.Fatalf("missing two-space-separated suffix on the RESETS cell: %q", out.String())
 	}
 }
 
@@ -179,12 +161,6 @@ func TestFormatResets_LargestTwoNonZeroUnits(t *testing.T) {
 				t.Fatalf("formatResets(%s) = %q, want %q", tt.d, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestRenderText_ZeroResetsAtRendersDashNotCountdown(t *testing.T) {
-	if got := ResetsCell(provider.Window{}, renderNow); got != "-" {
-		t.Fatalf("got %q, want %q", got, "-")
 	}
 }
 
@@ -250,7 +226,7 @@ func TestRenderJSON_NilSlicesRenderAsEmptyArrays(t *testing.T) {
 	}
 }
 
-func TestColoredTableKeepsPlainAlignment(t *testing.T) {
+func TestColoredCardsKeepPlainAlignment(t *testing.T) {
 	r := Result{Windows: []provider.Window{{Provider: "claude", Name: "日本", Plan: "max", RemainingPercent: 80, ResetsAt: renderNow.Add(time.Hour)}, {Provider: "codex", Name: "weekly", RemainingPercent: 30, RateLimited: true}}, Errors: []ProviderError{{Provider: "cursor", Message: "failed"}}, Undetected: []ProviderError{{Provider: "opencode-go", Message: "missing"}}}
 	var plainOut, colored bytes.Buffer
 	if err := renderText(&plainOut, r, renderNow); err != nil {
@@ -262,10 +238,25 @@ func TestColoredTableKeepsPlainAlignment(t *testing.T) {
 	if err := renderTextStyled(&colored, r, renderNow, renderer); err != nil {
 		t.Fatal(err)
 	}
-	if got := ansi.Strip(colored.String()); got != plainOut.String() {
-		t.Fatalf("ANSI changed alignment: %q vs %q", got, plainOut.String())
+	plainLines := strings.Split(strings.TrimSuffix(plainOut.String(), "\n"), "\n")
+	coloredLines := strings.Split(strings.TrimSuffix(ansi.Strip(colored.String()), "\n"), "\n")
+	if len(coloredLines) != len(plainLines) {
+		t.Fatalf("ANSI changed line count: %d vs %d", len(coloredLines), len(plainLines))
 	}
-	for _, want := range []string{renderer.NewStyle().Bold(true).Render("PROVIDER"), renderer.NewStyle().Foreground(lipgloss.Color("10")).Render("80.0%"), renderer.NewStyle().Foreground(lipgloss.Color("1")).Render("30.0%"), renderer.NewStyle().Foreground(lipgloss.Color("6")).Render("in 1h"), renderer.NewStyle().Foreground(lipgloss.Color("1")).Render("-  (rate limited)"), renderer.NewStyle().Foreground(lipgloss.Color("9")).Render("error: failed"), renderer.NewStyle().Foreground(lipgloss.Color("8")).Render("not detected: missing")} {
+	for i := range plainLines {
+		if lipgloss.Width(coloredLines[i]) != lipgloss.Width(plainLines[i]) {
+			t.Errorf("ANSI changed line %d width: %d vs %d", i, lipgloss.Width(coloredLines[i]), lipgloss.Width(plainLines[i]))
+		}
+	}
+	for _, want := range []string{
+		renderer.NewStyle().Foreground(display.Default().Accent("claude")).Bold(true).Render("◆ claude"),
+		renderer.NewStyle().Foreground(lipgloss.Color("10")).Bold(true).Render("80.0%"),
+		renderer.NewStyle().Foreground(lipgloss.Color("1")).Bold(true).Render("30.0%"),
+		renderer.NewStyle().Foreground(display.Neutral).Faint(true).Render(" · resets in 1h"),
+		renderer.NewStyle().Foreground(lipgloss.Color("1")).Render(" · rate limited"),
+		renderer.NewStyle().Foreground(lipgloss.Color("9")).Render("error: failed"),
+		renderer.NewStyle().Foreground(lipgloss.Color("8")).Faint(true).Render("not detected: missing"),
+	} {
 		if !strings.Contains(colored.String(), want) {
 			t.Errorf("missing %q in %q", want, colored.String())
 		}

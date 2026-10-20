@@ -28,8 +28,8 @@ func New() *cobra.Command {
 	}
 	validProviders := strings.Join(names, ", ")
 	cmd := &cobra.Command{
-		Use: "resets", Short: "Show which usage limits reset next",
-		Long: "List detected usage limits in reset order on a shared seven-day timeline.",
+		Use: "resets", Short: "Show usage windows in reset order",
+		Long: "List each detected usage window in reset order, soonest first. Each row shows the countdown, provider, window, reset date and time, and current percentage. Windows with no reset time appear last.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			names, err := cmd.Flags().GetStringSlice("filter")

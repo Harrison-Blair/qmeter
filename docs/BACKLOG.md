@@ -1,8 +1,7 @@
 # Backlog
 
-Ideas that are wanted but not scheduled. Nothing here is specced. The active spec is
-[`docs/specs/gauge-additions.md`](specs/gauge-additions.md). Mockups for most of these
-are on the qmeter design bench artifact.
+Ideas that are wanted but not scheduled. Nothing here is specced. Historical design notes
+remain in `docs/specs/`. Mockups for some ideas are on the qmeter design bench artifact.
 
 ## Storage
 
@@ -48,12 +47,6 @@ dotted out to the reset, with a line showing how past cycles ended.
 A 7 × 24 grid of burn per hour of the week, with the busiest stretch and how often the
 short window ran dry. `qmeter habits --provider claude`. Only meaningful after a few
 weeks of samples; show a "collecting" state until then.
-
-### Sharper run-out forecast (after the log)
-
-The forecast in the active spec uses average burn since the window opened, which is
-crude after a quiet morning. With the log it can use a recent burn rate, and the 5%
-elapsed floor can go.
 
 ### Status strip and its cache (tier A data, small)
 
@@ -146,8 +139,4 @@ This retained design concerns token counts, not the newly discovered surface dat
 
 ## Smaller ideas
 
-- Threshold notch on the bezel and `qmeter check --below 15`, exiting non-zero so a
-  script can refuse to start a long agent run on an empty tank.
-- `Enter` opens a detail pane for one window, holding its trace and forecast.
 - Surface Cursor's `isUnlimited` (already parsed) as a full gauge with an `∞` badge.
-- A worst-window summary line in the `--no-banner` header.
