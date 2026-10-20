@@ -66,7 +66,7 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 	if now.IsZero() {
 		now = time.Now()
 	}
-	providers := presentProviders(result, options.Theme)
+	providers := presentProviders(result)
 	if width < screenFloorWidth || height < screenFloorHeight {
 		needWidth, needHeight := compactNeed(result, now, renderer)
 		return tooSmallFrame(width, height, needWidth, needHeight)
@@ -99,6 +99,17 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 		return compactFrame(result, width, height, now, options, renderer)
 	}
 	return tooSmallFrame(width, height, needWidth, needHeight)
+}
+
+func share(total, gaps, index int) int {
+	if gaps == 0 {
+		return 0
+	}
+	n := total / gaps
+	if index < total%gaps {
+		n++
+	}
+	return n
 }
 
 func screenCards(result usage.Result, providers []provInfo) []screenCard {
@@ -310,7 +321,7 @@ func compactFrame(result usage.Result, width, height int, now time.Time, options
 	for i := range lines {
 		lines[i] = strings.Repeat(" ", width)
 	}
-	lines[0] = headerLine(result, len(presentProviders(result, options.Theme)), width, options, renderer)
+	lines[0] = headerLine(result, len(presentProviders(result)), width, options, renderer)
 	body := compactRows(result, width, now, options.Theme, renderer)
 	start := 1 + max(0, (height-2-len(body))/2)
 	copy(lines[start:], body)

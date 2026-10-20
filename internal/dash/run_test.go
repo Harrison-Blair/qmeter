@@ -16,37 +16,33 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider/providertest"
 )
 
-// runOpts is a dashboard wired to a fake provider and to in-memory
-// streams, so the program runs its real event loop without a terminal.
+// runOpts wires a fake provider and in-memory terminal streams.
 func runOpts(in string, out *bytes.Buffer, p provider.Provider) RunOptions {
 	return RunOptions{
 		Providers: []provider.Provider{p},
-		Banner:    true,
 		Input:     strings.NewReader(in),
 		Output:    out,
 	}
 }
 
+type runContextKey struct{}
+
 func TestRunOptionsReachModelOptions(t *testing.T) {
-	ctx := context.WithValue(context.Background(), struct{}{}, "bounded")
+	ctx := context.WithValue(context.Background(), runContextKey{}, "bounded")
 	th := theme.Default()
 	th.Cursor.Dark = "#010203"
 	p := providertest.Succeeding("cursor", nil)
 
 	got := modelOptions(ctx, RunOptions{
 		Providers:       []provider.Provider{p},
-		Banner:          true,
-		Vertical:        true,
 		Theme:           th,
-		MeterWidth:      83,
-		GaugeWidth:      83,
 		RefreshInterval: 17 * time.Second,
 	})
-	if got.Ctx != ctx || !got.Banner || !got.Vertical || len(got.Providers) != 1 || got.Providers[0] != p {
+	if got.Ctx != ctx || len(got.Providers) != 1 || got.Providers[0] != p {
 		t.Errorf("model options lost run state: %#v", got)
 	}
-	if got.Theme != th || got.MeterWidth != 83 || got.GaugeWidth != 83 {
-		t.Errorf("model appearance = (%#v, %d), want (%#v, 83)", got.Theme, got.MeterWidth, th)
+	if got.Theme != th {
+		t.Errorf("model theme = %#v, want %#v", got.Theme, th)
 	}
 	if got.RefreshInterval != 17*time.Second {
 		t.Errorf("model refresh interval = %s, want 17s", got.RefreshInterval)
@@ -100,7 +96,6 @@ func TestRun_QuittingCancelsTheFetchInFlight(t *testing.T) {
 	go func() {
 		done <- Run(context.Background(), RunOptions{
 			Providers: []provider.Provider{b},
-			Banner:    true,
 			Input:     in,
 			Output:    &out,
 		})
@@ -126,8 +121,8 @@ func TestRun_QuittingCancelsTheFetchInFlight(t *testing.T) {
 
 	// Let the input reader go before counting: it is parked on a pipe that
 	// only the test can close.
-	keys.Close()
-	in.Close()
+	_ = keys.Close()
+	_ = in.Close()
 
 	var got int
 	for i := 0; i < 100; i++ {

@@ -35,9 +35,9 @@ func TestExecuteWithArgs_Version(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"version"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(version): %v", err)
 	}
-	// Exact match, not a prefix: the root command's own Long text also starts
-	// with "qmeter ", so a prefix check would still pass if ExecuteWithArgs
-	// stopped applying args and printed the help banner instead.
+	// Exact match, not a prefix: the root command's Long text also starts
+	// with "qmeter ", so a prefix check would pass if ExecuteWithArgs
+	// stopped applying args and printed the help output instead.
 	want := "qmeter " + version.String() + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
@@ -79,10 +79,8 @@ func TestRoot_RunsTheDashboardWithItsOwnFlags(t *testing.T) {
 	if root.RunE == nil {
 		t.Error("the root command has no behaviour of its own")
 	}
-	for _, name := range []string{"filter", "no-banner", "vertical", "width"} {
-		if f := root.Flags().Lookup(name); f == nil {
-			t.Errorf("root has no --%s flag", name)
-		}
+	if f := root.Flags().Lookup("filter"); f == nil {
+		t.Error("root has no --filter flag")
 	}
 }
 
@@ -92,9 +90,14 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
 		t.Fatalf("ExecuteWithArgs(--help): %v", err)
 	}
-	for _, want := range []string{"usage", "version", "update", "--filter", "--no-banner", "--vertical", "--width", "--json"} {
+	for _, want := range []string{"usage", "version", "update", "--filter", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help does not mention %q:\n%s", want, out.String())
+		}
+	}
+	for _, removed := range []string{"--thickness", "--vertical", "--width", "--no-" + "ban" + "ner"} {
+		if strings.Contains(out.String(), removed) {
+			t.Errorf("help still lists removed flag %q:\n%s", removed, out.String())
 		}
 	}
 }

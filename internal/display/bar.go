@@ -28,26 +28,42 @@ func Bar(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) []st
 	percentStyle := r.NewStyle().Foreground(band).Bold(true)
 	dimStyle := r.NewStyle().Foreground(Neutral).Faint(true)
 	reset := "-"
+	resetText := " · resets -"
 	if !w.ResetsAt.IsZero() {
-		reset = "in " + FormatCountdown(w.ResetsAt.Sub(now))
+		reset = FormatCountdown(w.ResetsAt.Sub(now))
+		resetText = " · resets in " + reset
 	}
-	right := []styledPart{{percent, percentStyle}, {" · resets " + reset, dimStyle}}
+	rateText := " · rate limited"
+	right := []styledPart{{percent, percentStyle}, {resetText, dimStyle}}
 	if w.RateLimited {
-		right = append(right, styledPart{" · rate limited", r.NewStyle().Foreground(RateLimited)})
+		right = append(right, styledPart{rateText, r.NewStyle().Foreground(RateLimited)})
 	}
 
-	rightWidth := min(partsWidth(right), max(0, width-3))
-	rightText := renderParts(right, rightWidth)
+	fullNameWidth := runewidth.StringWidth(w.Name)
+	minNameWidth := min(fullNameWidth, 8)
+	if width-3-partsWidth(right) < minNameWidth {
+		resetText = " · " + reset
+		right[1].text = resetText
+	}
+	if w.RateLimited && width-3-partsWidth(right) < minNameWidth {
+		rateText = " · RL"
+		right[2].text = rateText
+	}
+
+	rightWidth := partsWidth(right)
+	if width-3-rightWidth < minNameWidth {
+		rightWidth = min(rightWidth, max(0, width-3-minNameWidth))
+	}
 	nameWidth := max(0, width-3-rightWidth)
 	name := fitText(w.Name, nameWidth)
 	name += strings.Repeat(" ", max(0, nameWidth-runewidth.StringWidth(name)))
 	left := "▸ " + name
-	gap := " "
 	if width <= runewidth.StringWidth(left) {
 		line := fitText(left, width)
 		return []string{line + strings.Repeat(" ", width-runewidth.StringWidth(line)), barLine(w, width, r)}
 	}
-	line := left + gap + rightText
+	rightText := renderParts(right, rightWidth)
+	line := left + " " + rightText
 	lineWidth := runewidth.StringWidth(left) + 1 + rightWidth
 	line += strings.Repeat(" ", max(0, width-lineWidth))
 	return []string{line, barLine(w, width, r)}
