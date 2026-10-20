@@ -41,20 +41,26 @@ func Bar(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) []st
 
 	fullNameWidth := runewidth.StringWidth(w.Name)
 	minNameWidth := min(fullNameWidth, 8)
-	if width-3-partsWidth(right) < minNameWidth {
+	shortened := false
+	if width-3-partsWidth(right) < fullNameWidth && !w.ResetsAt.IsZero() {
 		resetText = " · " + reset
 		right[1].text = resetText
+		shortened = true
 	}
-	if w.RateLimited && width-3-partsWidth(right) < minNameWidth {
+	if width-3-partsWidth(right) < fullNameWidth && w.RateLimited {
 		rateText = " · RL"
 		right[2].text = rateText
+		shortened = true
 	}
 
 	rightWidth := partsWidth(right)
-	if width-3-rightWidth < minNameWidth {
-		rightWidth = min(rightWidth, max(0, width-3-minNameWidth))
-	}
 	nameWidth := max(0, width-3-rightWidth)
+	if shortened && nameWidth >= fullNameWidth {
+		nameWidth = fullNameWidth
+	} else if nameWidth < minNameWidth {
+		rightWidth = min(rightWidth, max(0, width-3-minNameWidth))
+		nameWidth = max(0, width-3-rightWidth)
+	}
 	name := fitText(w.Name, nameWidth)
 	name += strings.Repeat(" ", max(0, nameWidth-runewidth.StringWidth(name)))
 	left := "▸ " + name

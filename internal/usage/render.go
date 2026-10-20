@@ -166,20 +166,6 @@ func MessageRows(renderer *lipgloss.Renderer, r Result) [][]display.Cell {
 	return rows
 }
 
-// ResetsCell renders a window's whole RESETS cell: the countdown, plus the
-// two-space-separated "(rate limited)" suffix when the window is rate
-// limited. It is one cell so the suffix never becomes a column of its own.
-func ResetsCell(w provider.Window, now time.Time) string {
-	cell := "-"
-	if !w.ResetsAt.IsZero() {
-		cell = "in " + display.FormatCountdown(w.ResetsAt.Sub(now))
-	}
-	if w.RateLimited {
-		cell += "  (rate limited)"
-	}
-	return cell
-}
-
 func formatResets(d time.Duration) string { return display.FormatCountdown(d) }
 
 // jsonEnvelope is the --json wire form: three keys, always present, never
