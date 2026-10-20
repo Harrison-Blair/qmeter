@@ -3,7 +3,6 @@ package dash
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"runtime"
 	"strings"
@@ -68,70 +67,73 @@ func (b *blocker) Detect(context.Context) (bool, string) { return true, "" }
 
 func (b *blocker) Fetch(ctx context.Context) (provider.Usage, error) {
 	b.once.Do(func() { close(b.started) })
-	select {
-	case <-ctx.Done():
-		close(b.observed)
-		return provider.Usage{}, ctx.Err()
-	case <-time.After(30 * time.Second):
-		return provider.Usage{}, errors.New("the fetch was left to run to completion")
-	}
+	<-ctx.Done()
+	close(b.observed)
+	return provider.Usage{}, ctx.Err()
 }
 
 func TestRun_QuittingCancelsTheFetchInFlight(t *testing.T) {
-	before := runtime.NumGoroutine()
+	for _, tc := range []struct {
+		name string
+		keys []byte
+	}{{"q", []byte("q")}, {"ctrl+c", []byte{0x03}}, {"combined r and q", []byte("rq")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := runtime.NumGoroutine()
 
-	b := newBlocker()
-	in, keys := io.Pipe()
-	var out bytes.Buffer
+			b := newBlocker()
+			in, keys := io.Pipe()
+			var out bytes.Buffer
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			defer func() {
+				cancel()
+				_ = keys.Close()
+				_ = in.Close()
+			}()
 
-	// q is pressed only once the fetch is under way, so the test cannot
-	// pass by quitting before anything had started.
-	go func() {
-		<-b.started
-		_, _ = keys.Write([]byte("q"))
-	}()
+			// Send input only after Fetch has started. The combined case
+			// checks the parser's single KeyMsg for adjacent runes.
+			go func() {
+				<-b.started
+				_, _ = keys.Write(tc.keys)
+			}()
+			start := time.Now()
+			go func() {
+				done <- Run(ctx, RunOptions{
+					Providers: []provider.Provider{b},
+					Input:     in,
+					Output:    &out,
+				})
+			}()
 
-	done := make(chan error, 1)
-	start := time.Now()
-	go func() {
-		done <- Run(context.Background(), RunOptions{
-			Providers: []provider.Provider{b},
-			Input:     in,
-			Output:    &out,
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("Run: %v", err)
+				}
+				if elapsed := time.Since(start); elapsed > time.Second {
+					t.Fatalf("Run took %s to quit, want under 1s", elapsed)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Run did not quit within 1s while Fetch was blocked")
+			}
+
+			select {
+			case <-b.observed:
+			case <-time.After(time.Second):
+				t.Fatal("quitting left Fetch running: its context was not canceled")
+			}
+
+			var got int
+			for i := 0; i < 100; i++ {
+				if got = runtime.NumGoroutine(); got <= before+2 {
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			t.Errorf("%d goroutines are still running, want no more than %d", got, before+2)
 		})
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-		if elapsed := time.Since(start); elapsed > 2*time.Second {
-			t.Fatalf("Run took %s to quit, want under 2s: it waited for the fetch", elapsed)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("Run never returned")
 	}
-
-	select {
-	case <-b.observed:
-	case <-time.After(time.Second):
-		t.Fatal("quitting left the fetch running: its context was never cancelled")
-	}
-
-	// Let the input reader go before counting: it is parked on a pipe that
-	// only the test can close.
-	_ = keys.Close()
-	_ = in.Close()
-
-	var got int
-	for i := 0; i < 100; i++ {
-		if got = runtime.NumGoroutine(); got <= before+2 {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Errorf("%d goroutines are still running, want no more than %d", got, before+2)
 }
 
 func TestRun_QuitsOnQ(t *testing.T) {
