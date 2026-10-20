@@ -81,7 +81,7 @@ func TestTextAndEmptyAndFilter(t *testing.T) {
 				if out.String() != "no providers detected\n" || a.Fetches() != 0 {
 					t.Fatal(out.String())
 				}
-			} else if !strings.Contains(out.String(), "RESETS") {
+			} else if !strings.Contains(out.String(), "claude") || !strings.Contains(out.String(), "credits") || strings.Contains(out.String(), "RESETS") {
 				t.Fatal(out.String())
 			}
 		})

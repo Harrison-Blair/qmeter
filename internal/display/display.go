@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -128,4 +130,28 @@ func Header(r *lipgloss.Renderer, names ...string) []Cell {
 		cells[i] = Cell{name, r.NewStyle().Bold(true)}
 	}
 	return cells
+}
+
+// BalanceAmounts formats a balance's remaining amount and limit.
+func BalanceAmounts(b provider.Balance) (left, limit string) {
+	left, limit = balanceAmount(b.Remaining, b.Unit), balanceAmount(b.Limit, b.Unit)
+	if b.Unlimited {
+		left = "unlimited"
+	}
+	return left, limit
+}
+
+func balanceAmount(value *float64, unit string) string {
+	if value == nil {
+		return "-"
+	}
+	if unit == "usd" {
+		return fmt.Sprintf("$%.2f", *value)
+	}
+	// Two decimals remove float noise; trimming trailing zeroes keeps whole values short.
+	text := strings.TrimSuffix(strings.TrimRight(strconv.FormatFloat(*value, 'f', 2, 64), "0"), ".")
+	if unit == "percent" {
+		text += "%"
+	}
+	return text
 }

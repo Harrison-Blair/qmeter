@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strconv"
 	"strings"
 
 	"github.com/Harrison-Blair/qmeter/internal/display"
@@ -18,29 +17,7 @@ import (
 // Amounts formats the remaining allowance and limit for both the table and
 // dashboard. Unknown amounts stay unknown; unconfirmed units stay bare.
 func Amounts(b provider.Balance) (left, limit string) {
-	left, limit = amount(b.Remaining, b.Unit), amount(b.Limit, b.Unit)
-	if b.Unlimited {
-		left = "unlimited"
-	}
-	return left, limit
-}
-
-func amount(value *float64, unit string) string {
-	if value == nil {
-		return "-"
-	}
-	if unit == "usd" {
-		return fmt.Sprintf("$%.2f", *value)
-	}
-	// Vendors report these as plain float64s, so a third of a hundred arrives
-	// as 33.333333333333336. Two decimals match the money column and keep the
-	// string narrow enough for the dashboard ledger's meter row; the trailing
-	// zeroes come off again so whole numbers stay whole.
-	text := strings.TrimSuffix(strings.TrimRight(strconv.FormatFloat(*value, 'f', 2, 64), "0"), ".")
-	if unit == "percent" {
-		text += "%"
-	}
-	return text
+	return display.BalanceAmounts(b)
 }
 
 // RenderText writes one balance table, styled for the output destination.

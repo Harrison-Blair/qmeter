@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,58 @@ import (
 
 var now = time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 
+func TestRenderTextR1LongNamesAtWidths(t *testing.T) {
+	result := usage.Result{Windows: []provider.Window{
+		{Provider: "claude", Name: strings.Repeat("界", 30), RemainingPercent: 81, ResetsAt: now.Add(16 * time.Minute)},
+		{Provider: "cursor", Name: "auto", RemainingPercent: 0, ResetsAt: now.Add(3*24*time.Hour + 12*time.Hour), RateLimited: true},
+	}}
+	wideName := strings.Repeat("界", 30)
+	shortName := strings.Repeat("界", 15) + "…"
+	want80 := "   16m claude " + shortName + " Sat 19 12:16 now 81.0%" + strings.Repeat(" ", 12) + "\n" +
+		" 3d12h cursor auto" + strings.Repeat(" ", 27) + " Wed 23 00:00 now 0.0% rate limited\n"
+	want120 := "   16m  claude  " + wideName + "  Sat 19 12:16   now 81.0%" + strings.Repeat(" ", 12) + "\n" +
+		" 3d12h  cursor  auto" + strings.Repeat(" ", 58) + "Wed 23 00:00   now 0.0% rate limited\n"
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{{80, want80}, {120, want120}} {
+		t.Run(strconv.Itoa(tc.width), func(t *testing.T) {
+			var out bytes.Buffer
+			if err := renderText(&out, result, now, tc.width, true, display.Renderer(&out)); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.want {
+				t.Fatalf("width %d mismatch\n got: %q\nwant: %q", tc.width, got, tc.want)
+			}
+		})
+	}
+	var pipe bytes.Buffer
+	if err := renderText(&pipe, result, now, 120, false, display.Renderer(&pipe)); err != nil {
+		t.Fatal(err)
+	}
+	if got := pipe.String(); got != want80 {
+		t.Fatalf("nonterminal width output differs from 80-cell golden: %q", got)
+	}
+}
+
+func TestRenderTextUsesR1RowsWithoutHeader(t *testing.T) {
+	result := usage.Result{
+		Windows:    []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 81, ResetsAt: now.Add(16 * time.Minute)}},
+		Errors:     []usage.ProviderError{{Provider: "codex", Message: "failed"}},
+		Undetected: []usage.ProviderError{{Provider: "cursor", Message: "missing"}},
+	}
+	var out bytes.Buffer
+	if err := renderText(&out, result, now, 80, true, display.Renderer(&out)); err != nil {
+		t.Fatal(err)
+	}
+	want := "   16m  claude  5h  Sat 19 12:16   now 81.0%\n" +
+		"codex   error: failed\n" +
+		"cursor  not detected: missing\n"
+	if got := out.String(); got != want {
+		t.Fatalf("R1 output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestTextUsesDefaultProviderTheme(t *testing.T) {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.TrueColor)
@@ -28,11 +81,7 @@ func TestTextUsesDefaultProviderTheme(t *testing.T) {
 		if err := renderText(&out, result, now, width, true, r); err != nil {
 			t.Fatal(err)
 		}
-		identity := "codex"
-		if width >= MinWidth {
-			identity = "●"
-		}
-		want := r.NewStyle().Foreground(display.Default().Accent("codex")).Render(identity)
+		want := r.NewStyle().Foreground(display.Default().Accent("codex")).Bold(true).Render("codex")
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("width %d: missing default identity %q in %q", width, want, out.String())
 		}
@@ -139,7 +188,7 @@ func boolInt(b bool) int {
 	return 0
 }
 
-func TestTextFallback(t *testing.T) {
+func TestTextUsesR1AtEveryWidth(t *testing.T) {
 	result := usage.Result{Windows: []provider.Window{
 		{Provider: "codex", Name: "unknown", RemainingPercent: 80},
 		{Provider: "claude", Name: "next", RemainingPercent: 12, ResetsAt: now.Add(time.Hour)},
@@ -148,9 +197,8 @@ func TestTextFallback(t *testing.T) {
 		name  string
 		width int
 		tty   bool
-		table bool
 	}{
-		{"narrow", 69, true, true}, {"pipe", 120, false, true}, {"timeline", 70, true, false},
+		{"narrow terminal", 69, true}, {"pipe", 120, false}, {"terminal", 120, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var b bytes.Buffer
@@ -158,20 +206,11 @@ func TestTextFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := b.String()
-			if tc.table {
-				for _, header := range []string{"PROVIDER", "WINDOW", "REMAINING", "RESETS"} {
-					if !strings.Contains(got, header) {
-						t.Fatalf("missing %s: %q", header, got)
-					}
-				}
-				if strings.ContainsAny(got, "◆●·") {
-					t.Fatalf("axis in fallback: %q", got)
-				}
-			} else if !strings.Contains(got, "now") || !strings.Contains(got, "+7d") || !strings.Contains(got, "◆") {
-				t.Fatalf("missing timeline: %q", got)
+			if strings.Contains(got, "PROVIDER") || strings.Contains(got, "+7d") || strings.ContainsAny(got, "◆●·") {
+				t.Fatalf("non-R1 output: %q", got)
 			}
 			if strings.Index(got, "next") > strings.Index(got, "unknown") {
-				t.Fatalf("unsorted: %q", got)
+				t.Fatalf("windows are not sorted by reset time: %q", got)
 			}
 		})
 	}
@@ -179,8 +218,8 @@ func TestTextFallback(t *testing.T) {
 	if err := RenderText(&b, result, now); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(b.String(), "PROVIDER") {
-		t.Fatal("buffer must be non-TTY")
+	if strings.Contains(b.String(), "PROVIDER") || !strings.Contains(b.String(), "next") {
+		t.Fatalf("nonterminal writer did not get an R1 list: %q", b.String())
 	}
 }
 
@@ -197,6 +236,10 @@ func TestRenderJSON(t *testing.T) {
 	var b bytes.Buffer
 	if err := RenderJSON(&b, result, now); err != nil {
 		t.Fatal(err)
+	}
+	const wantWire = `{"windows":[{"name":"first","provider":"claude","rate_limited":false,"remaining_percent":0,"resets_at":"2026-09-19T12:00:01Z","resets_in_seconds":1},{"name":"later","period_seconds":3600,"plan":"pro","provider":"codex","rate_limited":false,"remaining_percent":0,"resets_at":"2026-09-19T12:01:30Z","resets_in_seconds":90},{"name":"unknown","provider":"cursor","rate_limited":false,"remaining_percent":30,"resets_in_seconds":null}],"errors":[{"provider":"failed","message":"a & b"}],"undetected":[{"provider":"missing","reason":"why"}]}` + "\n"
+	if b.String() != wantWire {
+		t.Fatalf("JSON bytes changed: %s", b.String())
 	}
 	var got struct {
 		Windows    []map[string]any
