@@ -180,7 +180,7 @@ func TestCmd_UnknownFilterNameFailsBeforeAnyFetch(t *testing.T) {
 	}
 }
 
-func TestCmd_PipedOutputPrintsTheTableAndChecksForUpdates(t *testing.T) {
+func TestCmd_PipedOutputPrintsUsageCardsAndChecksForUpdates(t *testing.T) {
 	tr := newTestRoot(t, false)
 
 	if err := tr.execute(t); err != nil {
@@ -190,10 +190,13 @@ func TestCmd_PipedOutputPrintsTheTableAndChecksForUpdates(t *testing.T) {
 		t.Fatal("the dashboard ran on a pipe")
 	}
 	out := tr.out.String()
-	for _, want := range []string{"PROVIDER", "claude", "codex", "cursor"} {
+	for _, want := range []string{"╭─ ◆ claude", "╭─ ● codex", "╭─ ○ opencode-go", "╭─ ▲ cursor", "▸ 5h", "━━━━━━━━"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("piped output = %q, want it to contain %q", out, want)
 		}
+	}
+	if strings.Contains(out, "PROVIDER") {
+		t.Fatalf("piped output still contains the usage table: %q", out)
 	}
 	if len(tr.hints) != 1 {
 		t.Fatalf("the update hint ran %d times, want 1", len(tr.hints))

@@ -156,9 +156,8 @@ func TestCmd_ProviderFlagOnUndetectedProviderShowsReason(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	want := "codex     not detected: not logged in, run codex to log in\n"
-	if !strings.HasSuffix(out.String(), want) {
-		t.Fatalf("got %q, want it to end with %q", out.String(), want)
+	if !strings.Contains(out.String(), "not detected: not logged in, run codex to log in") {
+		t.Fatalf("undetected reason missing from card: %q", out.String())
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("unexpected stderr: %q", errOut.String())

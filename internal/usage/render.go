@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/display"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"golang.org/x/term"
 )
 
-// RenderText writes r as a human-readable table with countdowns from time.Now().
+// RenderText writes r as A5 provider cards with countdowns from time.Now().
 // Color follows the output destination and NO_COLOR; redirected output is plain.
-//
-// It formats only what Run already decided: every message in r.Errors and
-// r.Undetected is final text and is printed verbatim, never re-wrapped.
 func RenderText(w io.Writer, r Result) error {
 	return renderText(w, r, time.Now())
 }
@@ -26,20 +26,131 @@ func renderText(w io.Writer, r Result, now time.Time) error {
 }
 
 func renderTextStyled(w io.Writer, r Result, now time.Time, renderer *lipgloss.Renderer) error {
-	if len(r.Windows) == 0 && len(r.Errors) == 0 && len(r.Undetected) == 0 {
+	width := 80
+	if f, ok := w.(interface{ Fd() uintptr }); ok && term.IsTerminal(int(f.Fd())) {
+		if cols, _, err := term.GetSize(int(f.Fd())); err == nil && cols > 0 {
+			width = cols
+		}
+	}
+	return renderTextAtWidth(w, r, now, width, renderer)
+}
+
+func renderTextAtWidth(w io.Writer, r Result, now time.Time, width int, renderer *lipgloss.Renderer) error {
+	if len(r.Windows) == 0 && len(r.Balances) == 0 && len(r.Errors) == 0 && len(r.Undetected) == 0 {
 		_, err := fmt.Fprintln(w, "no providers detected")
 		return err
 	}
-	rows := [][]display.Cell{display.Header(renderer, "PROVIDER", "WINDOW", "PLAN", "REMAINING", "RESETS")}
-	for _, win := range r.Windows {
-		plan := win.Plan
-		if plan == "" {
-			plan = "-"
+	cards := make(map[string]*providerCard)
+	var seen []string
+	add := func(id string) *providerCard {
+		if id == "" {
+			return nil
 		}
-		rows = append(rows, []display.Cell{display.ProviderCell(renderer, win.Provider), {Text: win.Name}, {Text: plan}, display.RemainingCell(renderer, win.RemainingPercent, win.RateLimited), display.ResetCell(renderer, ResetsCell(win, now), win.RateLimited)})
+		card := cards[id]
+		if card == nil {
+			card = &providerCard{plan: "-"}
+			cards[id] = card
+			seen = append(seen, id)
+		}
+		return card
 	}
-	rows = append(rows, MessageRows(renderer, r)...)
-	return display.Table(w, rows)
+	for _, win := range r.Windows {
+		card := add(win.Provider)
+		if card == nil {
+			continue
+		}
+		if len(card.windows) == 0 {
+			if win.Plan != "" {
+				card.plan = win.Plan
+			}
+		}
+		card.windows = append(card.windows, win)
+	}
+	for _, balance := range r.Balances {
+		card := add(balance.Provider)
+		if card == nil {
+			continue
+		}
+		left, _ := display.BalanceAmounts(balance)
+		card.balances = append(card.balances, display.Balance{Name: balance.Name, Amount: left})
+	}
+	for _, failure := range r.Errors {
+		if card := add(failure.Provider); card != nil {
+			card.messages = append(card.messages, display.CardMessage{Text: "error: " + failure.Message, Error: true})
+		}
+	}
+	for _, missing := range r.Undetected {
+		if card := add(missing.Provider); card != nil {
+			card.messages = append(card.messages, display.CardMessage{Text: "not detected: " + missing.Message})
+		}
+	}
+
+	ordered := make([]string, 0, len(cards))
+	for _, id := range display.ProviderOrder() {
+		if cards[id] != nil {
+			ordered = append(ordered, id)
+		}
+	}
+	known := make(map[string]bool, len(ordered))
+	for _, id := range ordered {
+		known[id] = true
+	}
+	for _, id := range seen {
+		if !known[id] {
+			ordered = append(ordered, id)
+			known[id] = true
+		}
+	}
+
+	columns, cardWidth, gutter := 1, width, 0
+	if (width-2)/2 >= 40 {
+		columns, cardWidth, gutter = 2, (width-2)/2, 2
+	}
+	cardWidth = max(cardWidth, 30)
+	for i := 0; i < len(ordered); i += columns {
+		rowIDs := ordered[i:min(i+columns, len(ordered))]
+		height := 0
+		for _, id := range rowIDs {
+			natural := display.CardHeight(cardWidth, cards[id].windows, cards[id].balances, cards[id].messages)
+			height = max(height, natural)
+		}
+		rowCards := make([][]string, len(rowIDs))
+		for j, id := range rowIDs {
+			lines, ok := display.ProviderCard(id, cards[id].plan, cards[id].windows, cards[id].balances, cards[id].messages, cardWidth, height, now, renderer, display.Default())
+			if ok {
+				rowCards[j] = lines
+			}
+		}
+		for y := 0; y < height; y++ {
+			for j, lines := range rowCards {
+				if j > 0 {
+					if _, err := io.WriteString(w, strings.Repeat(" ", gutter)); err != nil {
+						return err
+					}
+				}
+				if y < len(lines) {
+					line := lines[y]
+					if cardWidth > width {
+						line = ansi.Truncate(line, width, "")
+					}
+					if _, err := io.WriteString(w, line); err != nil {
+						return err
+					}
+				}
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type providerCard struct {
+	plan     string
+	windows  []provider.Window
+	balances []display.Balance
+	messages []display.CardMessage
 }
 
 // MessageRows shares the two-cell provider-error and not-detected rows between

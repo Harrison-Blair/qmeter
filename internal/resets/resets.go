@@ -65,22 +65,35 @@ func timelineName(w provider.Window, width int) string {
 	return name + strings.Repeat(" ", width-runewidth.StringWidth(name))
 }
 
-// RenderText uses the destination's terminal width, or a plain table for pipes.
+// RenderText uses the destination's terminal width, or 80 cells for pipes.
 func RenderText(w io.Writer, result usage.Result, now time.Time) error {
-	width := 0
+	width := 80
 	tty := false
 	if f, ok := w.(interface{ Fd() uintptr }); ok && term.IsTerminal(int(f.Fd())) {
 		tty = true
-		width, _, _ = term.GetSize(int(f.Fd()))
+		if cols, _, err := term.GetSize(int(f.Fd())); err == nil && cols > 0 {
+			width = cols
+		}
 	}
 	return renderText(w, result, now, width, tty, display.Renderer(w))
 }
 
 func renderText(w io.Writer, result usage.Result, now time.Time, width int, tty bool, r *lipgloss.Renderer) error {
 	if !tty {
-		width = 0
+		width = 80
 	}
-	_, err := fmt.Fprintln(w, strings.Join(Rows(result, now, width, r, display.Default()), "\n"))
+	if len(result.Windows) == 0 && len(result.Errors) == 0 && len(result.Undetected) == 0 {
+		_, err := fmt.Fprintln(w, "no providers detected")
+		return err
+	}
+	rows := display.ResetRows(result.Windows, now, width, r, display.Default())
+	messages := usage.MessageRows(r, result)
+	if len(messages) > 0 {
+		var b strings.Builder
+		_ = display.Table(&b, messages)
+		rows = append(rows, strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
+	}
+	_, err := fmt.Fprintln(w, strings.Join(rows, "\n"))
 	return err
 }
 
