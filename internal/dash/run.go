@@ -12,33 +12,15 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
-// RunOptions are the dashboard's run-time choices: what to fetch, whether
-// to draw the wordmark, and which streams to talk to.
+// RunOptions are the dashboard's run-time choices and terminal streams.
 type RunOptions struct {
 	// Providers are fetched on every refresh, already narrowed by
 	// --filter.
 	Providers []provider.Provider
 
-	// Banner draws the wordmark as the pinned header.
-	Banner bool
-
-	// Vertical uses one full-width provider column.
-	Vertical bool
-
 	// Theme is the provider identity palette. Its zero value uses the
 	// built-in adaptive palette.
 	Theme theme.Theme
-
-	// MeterWidth is the preferred complete gauge width. Zero uses the
-	// dashboard default. It decides when two columns fit; meters then
-	// stretch to their card. Vertical always uses one column.
-	MeterWidth int
-
-	// GaugeWidth caps complete gauge width in terminal cells. Zero lets gauges stretch.
-	GaugeWidth int
-
-	// MeterThickness is the number of track rows. Zero uses three rows.
-	MeterThickness int
 
 	// RefreshInterval is the delay after each completed fetch before the
 	// next automatic refresh. Zero uses the dashboard default.
@@ -83,12 +65,7 @@ func Run(ctx context.Context, opts RunOptions) error {
 func modelOptions(ctx context.Context, opts RunOptions) Options {
 	return Options{
 		Providers:       opts.Providers,
-		Banner:          opts.Banner,
-		Vertical:        opts.Vertical,
 		Theme:           opts.Theme,
-		MeterWidth:      opts.MeterWidth,
-		GaugeWidth:      opts.GaugeWidth,
-		MeterThickness:  opts.MeterThickness,
 		RefreshInterval: opts.RefreshInterval,
 		Ctx:             ctx,
 	}

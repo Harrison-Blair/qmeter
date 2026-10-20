@@ -41,9 +41,9 @@ func NewRootCmd() *cobra.Command {
 	// form reads the same flag; cmd/usage is the first.
 	root.PersistentFlags().Bool("json", false, "output JSON instead of text")
 
-	// The root command's own behaviour — the dashboard, --filter,
-	// --no-banner and --vertical — is wired by cmd/dash, after the persistent
-	// flags it reads and before the subcommands it must not shadow.
+	// The root command's own behaviour — the dashboard and --filter — is wired
+	// by cmd/dash, after the persistent flags it reads and before the
+	// subcommands it must not shadow.
 	dash.Attach(root)
 
 	root.AddCommand(usage.New())

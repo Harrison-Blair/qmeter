@@ -40,19 +40,18 @@ func Bar(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) []st
 	}
 
 	fullNameWidth := runewidth.StringWidth(w.Name)
-	if width < 3+fullNameWidth+partsWidth(right) {
+	minNameWidth := min(fullNameWidth, 8)
+	if width-3-partsWidth(right) < minNameWidth {
 		resetText = " · " + reset
 		right[1].text = resetText
 	}
-	if w.RateLimited && width < 3+fullNameWidth+partsWidth(right) {
+	if w.RateLimited && width-3-partsWidth(right) < minNameWidth {
 		rateText = " · RL"
 		right[2].text = rateText
 	}
 
-	fullRightWidth := partsWidth(right)
-	minNameWidth := min(fullNameWidth, 8)
-	rightWidth := fullRightWidth
-	if 3+fullNameWidth+rightWidth > width {
+	rightWidth := partsWidth(right)
+	if width-3-rightWidth < minNameWidth {
 		rightWidth = min(rightWidth, max(0, width-3-minNameWidth))
 	}
 	nameWidth := max(0, width-3-rightWidth)

@@ -227,9 +227,6 @@ func TestCmd_TerminalRunsTheDashboard(t *testing.T) {
 		t.Fatalf("the dashboard ran %d times, want 1", len(tr.runs))
 	}
 	got := tr.runs[0]
-	if !got.Banner {
-		t.Error("the dashboard ran without the banner")
-	}
 	if ids := joined(providerIDs(got.Providers)); ids != "claude,codex,opencode-go,cursor" {
 		t.Errorf("the dashboard got providers %q, want all four", ids)
 	}
@@ -247,7 +244,6 @@ func TestCmd_TerminalRunsTheDashboard(t *testing.T) {
 func TestCmd_InteractiveDashboardLoadsAndPassesConfiguration(t *testing.T) {
 	tr := newTestRoot(t, true)
 	want := dconfig.Default()
-	want.MeterWidth = 83
 	want.Theme.Claude.Light = "#010203"
 	want.RefreshInterval = 17 * time.Second
 	loadConfig = func() (dconfig.Settings, error) {
@@ -264,9 +260,9 @@ func TestCmd_InteractiveDashboardLoadsAndPassesConfiguration(t *testing.T) {
 	if len(tr.runs) != 1 {
 		t.Fatalf("dashboard ran %d times, want 1", len(tr.runs))
 	}
-	if got := tr.runs[0]; got.MeterWidth != want.MeterWidth || got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
-		t.Errorf("dashboard settings = (%d, %#v, %s), want (%d, %#v, %s)",
-			got.MeterWidth, got.Theme, got.RefreshInterval, want.MeterWidth, want.Theme, want.RefreshInterval)
+	if got := tr.runs[0]; got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
+		t.Errorf("dashboard settings = (%#v, %s), want (%#v, %s)",
+			got.Theme, got.RefreshInterval, want.Theme, want.RefreshInterval)
 	}
 }
 
@@ -275,7 +271,6 @@ func TestCmd_InvalidConfigurationWarnsOnceAndUsesAllDefaults(t *testing.T) {
 	loadConfig = func() (dconfig.Settings, error) {
 		tr.configLoads++
 		partial := dconfig.Default()
-		partial.MeterWidth = 83
 		partial.Theme.Claude.Light = "#010203"
 		partial.RefreshInterval = 17 * time.Second
 		return partial, errors.New("/tmp/qmeter/config.toml: invalid color")
@@ -292,7 +287,7 @@ func TestCmd_InvalidConfigurationWarnsOnceAndUsesAllDefaults(t *testing.T) {
 		t.Fatalf("dashboard ran %d times, want 1", len(tr.runs))
 	}
 	want := dconfig.Default()
-	if got := tr.runs[0]; got.MeterWidth != want.MeterWidth || got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
+	if got := tr.runs[0]; got.Theme != want.Theme || got.RefreshInterval != want.RefreshInterval {
 		t.Errorf("dashboard did not use all defaults after invalid config: %#v", got)
 	}
 }
@@ -315,23 +310,6 @@ func TestCmd_NonInteractiveRoutesDoNotLoadDashboardConfiguration(t *testing.T) {
 				t.Errorf("configuration loaded %d times, want 0", tr.configLoads)
 			}
 		})
-	}
-}
-
-func TestCmd_NoBannerReachesTheDashboard(t *testing.T) {
-	tr := newTestRoot(t, true)
-
-	if err := tr.execute(t, "--no-banner", "--filter", "claude"); err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	if len(tr.runs) != 1 {
-		t.Fatalf("the dashboard ran %d times, want 1", len(tr.runs))
-	}
-	if tr.runs[0].Banner {
-		t.Error("--no-banner still ran with the banner")
-	}
-	if ids := joined(providerIDs(tr.runs[0].Providers)); ids != "claude" {
-		t.Errorf("the dashboard got providers %q, want claude", ids)
 	}
 }
 
@@ -396,163 +374,4 @@ func TestCmd_DefaultsToTheRealCollaborators(t *testing.T) {
 	// Calling it proves the default reads the real stdout rather than
 	// panicking on a nil file; the answer depends on how the tests run.
 	_ = stdoutIsTerminal()
-}
-
-func TestCmd_VerticalDashboardFlag(t *testing.T) {
-	for _, tc := range []struct {
-		name             string
-		args             []string
-		vertical, banner bool
-		providers        string
-	}{
-		{"default", nil, false, true, "claude,codex,opencode-go,cursor"},
-		{"vertical", []string{"--vertical"}, true, true, "claude,codex,opencode-go,cursor"},
-		{"combined", []string{"--vertical", "--no-banner", "--filter", "codex,claude"}, true, false, "claude,codex"},
-		{"explicit false", []string{"--vertical=false"}, false, true, "claude,codex,opencode-go,cursor"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tr := newTestRoot(t, true)
-			f := tr.cmd.Flags().Lookup("vertical")
-			if f == nil || f.DefValue != "false" || f.Shorthand != "" || tr.cmd.PersistentFlags().Lookup("vertical") != nil {
-				t.Fatal("vertical must be a root-local flag defaulting to false without shorthand")
-			}
-			if err := tr.execute(t, tc.args...); err != nil {
-				t.Fatal(err)
-			}
-			if len(tr.runs) != 1 {
-				t.Fatalf("runs = %d, want 1", len(tr.runs))
-			}
-			got := tr.runs[0]
-			if got.Vertical != tc.vertical || got.Banner != tc.banner || joined(providerIDs(got.Providers)) != tc.providers {
-				t.Fatalf("unexpected options: %#v", got)
-			}
-		})
-	}
-}
-
-func TestCmd_VerticalDoesNotChangeNonInteractiveOutput(t *testing.T) {
-	for _, asJSON := range []bool{false, true} {
-		t.Run(map[bool]string{false: "piped", true: "json"}[asJSON], func(t *testing.T) {
-			var baseline string
-			for _, vertical := range []bool{false, true} {
-				tr := newTestRoot(t, asJSON)
-				args := []string{"--filter", "claude", "--no-banner"}
-				if asJSON {
-					args = append(args, "--json")
-				}
-				if vertical {
-					args = append(args, "--vertical")
-				}
-				if err := tr.execute(t, args...); err != nil {
-					t.Fatal(err)
-				}
-				if len(tr.runs) != 0 || tr.configLoads != 0 {
-					t.Fatal("noninteractive output entered dashboard")
-				}
-				if vertical && tr.out.String() != baseline {
-					t.Fatalf("vertical changed output: %q vs %q", tr.out.String(), baseline)
-				}
-				baseline = tr.out.String()
-			}
-		})
-	}
-}
-
-func TestCmd_WidthAccepted(t *testing.T) {
-	tr := newTestRoot(t, true)
-	if err := tr.execute(t, "--width", "22"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestCmd_WidthOptionsAndConfiguration(t *testing.T) {
-	for _, tc := range []struct {
-		name, width          string
-		invalidConfig        bool
-		wantMeter, wantGauge int
-	}{
-		{"omitted", "", false, 83, 0}, {"minimum", "22", false, 22, 22},
-		{"maximum", "200", false, 200, 200}, {"override fallback", "40", true, 40, 40},
-		{"default fallback", "", true, dconfig.DefaultMeterWidth, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tr := newTestRoot(t, true)
-			loadConfig = func() (dconfig.Settings, error) {
-				tr.configLoads++
-				s := dconfig.Default()
-				s.MeterWidth = 83
-				if tc.invalidConfig {
-					return s, errors.New("invalid config")
-				}
-				return s, nil
-			}
-			var args []string
-			if tc.width != "" {
-				args = []string{"--width", tc.width, "--vertical"}
-			}
-			if err := tr.execute(t, args...); err != nil {
-				t.Fatal(err)
-			}
-			got := tr.runs[0]
-			if got.MeterWidth != tc.wantMeter || got.GaugeWidth != tc.wantGauge {
-				t.Fatalf("widths = %d/%d, want %d/%d", got.MeterWidth, got.GaugeWidth, tc.wantMeter, tc.wantGauge)
-			}
-			f := tr.cmd.Flags().Lookup("width")
-			if f == nil || f.DefValue != "0" || tr.cmd.PersistentFlags().Lookup("width") != nil {
-				t.Fatal("width must be root local and default to unset")
-			}
-		})
-	}
-}
-
-func TestCmd_InvalidWidthBeforeRegistry(t *testing.T) {
-	for _, width := range []string{"0", "-1", "21", "201", "nope"} {
-		for _, route := range []string{"terminal", "json", "pipe"} {
-			t.Run(width+route, func(t *testing.T) {
-				tr := newTestRoot(t, route != "pipe")
-				called := false
-				registry = func() []provider.Provider { called = true; return nil }
-				args := []string{"--width", width}
-				if route == "json" {
-					args = append(args, "--json")
-				}
-				err := tr.execute(t, args...)
-				if err == nil {
-					t.Fatal("invalid width accepted")
-				}
-				if called || tr.configLoads != 0 || len(tr.runs) != 0 || len(tr.fetched()) != 0 {
-					t.Fatal("invalid width reached collaborators")
-				}
-				if width != "nope" && tr.errOut.String() != "width must be between 22 and 200\n" {
-					t.Fatalf("stderr = %q", tr.errOut.String())
-				}
-			})
-		}
-	}
-}
-
-func TestCmd_WidthDoesNotChangeNonInteractiveOutput(t *testing.T) {
-	for _, asJSON := range []bool{false, true} {
-		var baseline string
-		for _, width := range []string{"", "22", "200"} {
-			tr := newTestRoot(t, asJSON)
-			args := []string{"--filter", "claude"}
-			if asJSON {
-				args = append(args, "--json")
-			}
-			if width != "" {
-				args = append(args, "--width", width)
-			}
-			if err := tr.execute(t, args...); err != nil {
-				t.Fatal(err)
-			}
-			if tr.configLoads != 0 || len(tr.runs) != 0 {
-				t.Fatal("noninteractive entered dashboard")
-			}
-			if width != "" && tr.out.String() != baseline {
-				t.Fatal("width changed output")
-			}
-			baseline = tr.out.String()
-		}
-	}
 }

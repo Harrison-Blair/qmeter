@@ -38,43 +38,11 @@ const validProviders = "claude, codex, opencode-go, cursor"
 func Attach(root *cobra.Command) {
 	root.Args = cobra.NoArgs
 	root.Flags().StringSlice("filter", nil, "show only these providers ("+validProviders+")")
-	root.Flags().Bool("no-banner", false, "hide the qmeter wordmark")
-	root.Flags().Int("thickness", dconfig.DefaultMeterThickness, fmt.Sprintf("number of meter track rows (%d–%d)", dconfig.MinMeterThickness, dconfig.MaxMeterThickness))
-	root.Flags().Bool("vertical", false, "stack providers vertically (meters honor --width)")
-	root.Flags().Int("width", 0, fmt.Sprintf("gauge width including caps, in terminal cells (%d–%d); overrides meter_width, shrinks to fit", dconfig.MinMeterWidth, dconfig.MaxMeterWidth))
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		names, err := cmd.Flags().GetStringSlice("filter")
 		if err != nil {
 			return err
-		}
-		noBanner, err := cmd.Flags().GetBool("no-banner")
-		if err != nil {
-			return err
-		}
-		vertical, err := cmd.Flags().GetBool("vertical")
-		if err != nil {
-			return err
-		}
-		thickness, err := cmd.Flags().GetInt("thickness")
-		if err != nil {
-			return err
-		}
-		if thickness < dconfig.MinMeterThickness || thickness > dconfig.MaxMeterThickness {
-			msg := fmt.Sprintf("thickness must be between %d and %d", dconfig.MinMeterThickness, dconfig.MaxMeterThickness)
-			fmt.Fprintln(cmd.ErrOrStderr(), msg)
-			cmd.SilenceErrors = true
-			return errors.New(msg)
-		}
-		width, err := cmd.Flags().GetInt("width")
-		if err != nil {
-			return err
-		}
-		if cmd.Flags().Changed("width") && (width < dconfig.MinMeterWidth || width > dconfig.MaxMeterWidth) {
-			msg := fmt.Sprintf("width must be between %d and %d", dconfig.MinMeterWidth, dconfig.MaxMeterWidth)
-			fmt.Fprintln(cmd.ErrOrStderr(), msg)
-			cmd.SilenceErrors = true
-			return errors.New(msg)
 		}
 		// --json is a persistent flag on the root command; a root built
 		// without it simply draws.
@@ -85,7 +53,7 @@ func Attach(root *cobra.Command) {
 		providers, unknown := usage.Select(registry(), names)
 		if unknown != "" {
 			msg := fmt.Sprintf("unknown provider %q (valid: %s)", unknown, validProviders)
-			fmt.Fprintln(cmd.ErrOrStderr(), msg)
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
 			// Silence cobra's own report of this one error so the line
 			// above is not printed twice, without also swallowing its
 			// reports of a bad argument or an unknown flag.
@@ -117,24 +85,18 @@ func Attach(root *cobra.Command) {
 		}
 
 		settings, configErr := loadConfig()
-		if configErr != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", configErr)
+		var warnings dconfig.Warnings
+		if errors.As(configErr, &warnings) {
+			for _, warning := range warnings {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+			}
+		} else if configErr != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", configErr)
 			settings = dconfig.Default()
-		}
-		if cmd.Flags().Changed("width") {
-			settings.MeterWidth = width
-		}
-		if cmd.Flags().Changed("thickness") {
-			settings.MeterThickness = thickness
 		}
 		if err := run(ctx, idash.RunOptions{
 			Providers:       providers,
-			Banner:          !noBanner,
-			Vertical:        vertical,
 			Theme:           settings.Theme,
-			MeterWidth:      settings.MeterWidth,
-			GaugeWidth:      width,
-			MeterThickness:  settings.MeterThickness,
 			RefreshInterval: settings.RefreshInterval,
 		}); err != nil {
 			return err

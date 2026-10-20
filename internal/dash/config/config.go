@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,16 +17,6 @@ import (
 )
 
 const (
-	// DefaultMeterWidth is the preferred complete rendered gauge width.
-	DefaultMeterWidth = 50
-	MinMeterWidth     = 22
-	MaxMeterWidth     = 200
-
-	// DefaultMeterThickness is the number of track rows.
-	DefaultMeterThickness = 3
-	MinMeterThickness     = 1
-	MaxMeterThickness     = 9
-
 	DefaultRefreshInterval = 60 * time.Second
 	minRefreshSeconds      = 1
 	maxRefreshSeconds      = 86400
@@ -32,11 +24,14 @@ const (
 
 // Settings are the validated dashboard presentation settings.
 type Settings struct {
-	MeterWidth      int
-	MeterThickness  int
 	Theme           theme.Theme
 	RefreshInterval time.Duration
 }
+
+// Warnings reports removed configuration keys that were ignored.
+type Warnings []string
+
+func (w Warnings) Error() string { return strings.Join(w, "\n") }
 
 var (
 	userConfigDir = os.UserConfigDir
@@ -47,8 +42,6 @@ var (
 // Default returns the settings used without a configuration file.
 func Default() Settings {
 	return Settings{
-		MeterWidth:      DefaultMeterWidth,
-		MeterThickness:  DefaultMeterThickness,
 		Theme:           theme.Default(),
 		RefreshInterval: DefaultRefreshInterval,
 	}
@@ -72,6 +65,12 @@ func Load() (Settings, error) {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}
 	settings, err := parse(data)
+	if warnings, ok := err.(Warnings); ok {
+		for i := range warnings {
+			warnings[i] = path + ": " + warnings[i]
+		}
+		return settings, warnings
+	}
 	if err != nil {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}
@@ -79,8 +78,6 @@ func Load() (Settings, error) {
 }
 
 type rawConfig struct {
-	MeterWidth      *int      `toml:"meter_width"`
-	MeterThickness  *int      `toml:"meter_thickness"`
 	RefreshInterval *int      `toml:"refresh_interval"`
 	Colors          rawColors `toml:"colors"`
 }
@@ -103,23 +100,23 @@ func parse(data []byte) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	if keys := meta.Undecoded(); len(keys) > 0 {
-		return Settings{}, fmt.Errorf("unknown key %q", keys[0].String())
+	var warnings Warnings
+	var unknown []string
+	for _, key := range meta.Undecoded() {
+		name := key.String()
+		switch name {
+		case "meter_width", "meter_thickness":
+			warnings = append(warnings, fmt.Sprintf("ignoring removed key %q", name))
+		default:
+			unknown = append(unknown, name)
+		}
 	}
+	if len(unknown) > 0 {
+		return Settings{}, fmt.Errorf("unknown key %q", unknown[0])
+	}
+	sort.Strings(warnings)
 
 	settings := Default()
-	if raw.MeterWidth != nil {
-		if *raw.MeterWidth < MinMeterWidth || *raw.MeterWidth > MaxMeterWidth {
-			return Settings{}, fmt.Errorf("meter_width must be between %d and %d", MinMeterWidth, MaxMeterWidth)
-		}
-		settings.MeterWidth = *raw.MeterWidth
-	}
-	if raw.MeterThickness != nil {
-		if *raw.MeterThickness < MinMeterThickness || *raw.MeterThickness > MaxMeterThickness {
-			return Settings{}, fmt.Errorf("meter_thickness must be between %d and %d", MinMeterThickness, MaxMeterThickness)
-		}
-		settings.MeterThickness = *raw.MeterThickness
-	}
 	if raw.RefreshInterval != nil {
 		if *raw.RefreshInterval < minRefreshSeconds || *raw.RefreshInterval > maxRefreshSeconds {
 			return Settings{}, fmt.Errorf("refresh_interval must be between %d and %d seconds", minRefreshSeconds, maxRefreshSeconds)
@@ -138,6 +135,9 @@ func parse(data []byte) (Settings, error) {
 	}
 	if err := mergeColor("colors.cursor", &settings.Theme.Cursor, raw.Colors.Cursor); err != nil {
 		return Settings{}, err
+	}
+	if len(warnings) > 0 {
+		return settings, warnings
 	}
 	return settings, nil
 }
