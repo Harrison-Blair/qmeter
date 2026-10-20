@@ -1,18 +1,14 @@
 # Verified: 51-simplify-screen
 
-Task commit: `56e2948`. Base: `dev` at `103b84d`. Verifier re-ran each item on 2026-10-19.
+Task commits: `56e2948`, repair `6b15f67`. Base: `103b84d` (merge base with `dev`). Verifier re-ran each item on 2026-10-19 after the repair.
 
-Verdict: **fail** (V2).
+Verdict: **pass**.
 
 | ID | Result | Observation |
 | --- | --- | --- |
-| V1 | pass | `screen_test.go` and the `testdata/screen-*.txt` frames, copied onto a `dev` worktree, fail to compile (`undefined: layout.Screen`). On the task branch, all 8 `TestScreen*` tests pass. |
-| V2 | fail | The 140x45, 93x30 and 80x24 frames match R2/R3. The 140x45 frame has 2-column cards and R1 + balances. The 93x30 frame drops R1 and keeps balances at full width. The 80x24 frame drops both panels. The stripped text is aligned and no line wraps. **The `screen-79x23.txt` frame is not a "too small" frame.** It shows the header, the 2-column cards and the key bar (23 lines). R5 labels 79x23 "too small", and decision 7 says "Below the floor [about 80x24], show one message with the needed size". The worker's V2 evidence says the 79x23 frame "shows one centered size message". That is not what the file contains. Cause: `Screen` applies the 80x24 floor only to the compact tier and to the loading and empty frames. The card tiers are measured with no floor. Minor note: at 80x24 the rate-limited cursor `auto` window shows no name (`▸  0.0% · resets in 3d12h · rate l…`). At 93x30 it shows `a…`. |
-| V3 | pass (note) | `go test -run '^TestScreenDropsPartsInMeasuredOrder$'` passes. At 100 columns: resets drop at height 10, balances at 9, cards stay through 6, too small at 5. That is the R3 order. The compact tier is never reached because its need is at least 80x24. Note: cards stay at heights 6–9, below the 24-row floor. This is the same cause as V2. |
-| V4 | pass | `git diff dev` shows no change to `layout.go` or to any existing `_test.go` file. 324 non-`TestScreen` test results pass on the branch. The same 324 pass on `dev`. |
-| V5 | pass | `git diff dev --stat` lists only `internal/dash/layout/screen.go`, `screen_test.go` and eight `testdata/screen-*.txt` files. These are in the source table. |
+| V1 | pass | `screen_test.go` and the `testdata/screen-*.txt` frames, copied onto a worktree at `103b84d`, fail to compile (`undefined: layout.Screen`). Copied onto the pre-repair commit `56e2948`, `TestScreenGoldenFrames` and `TestScreenBelowFloorShowsOnlyTooSmallMessage` fail. On `6b15f67`, all 9 `TestScreen*` tests pass. |
+| V2 | pass (note) | `screen-140x45.txt`: header with `fetched 21:23`, 2-column cards, `resets` panel (9 rows) beside `balances` (2 rows), key bar. `screen-93x30.txt`: cards, R1 dropped, balances at full width. `screen-80x24.txt`: cards only, both panels dropped. `screen-79x23.txt`: only the centred `terminal too small: 79x23, need 80x24`. `79x45`, `140x23` and `60x40` also show only the too-small message. Measured with East Asian width: every golden line is at most the frame width, and the full-content lines are exactly the frame width (goldens are right-trimmed; the property test checks exact width). No ANSI escapes, no wrapped lines. Note (carried from the first run): at 80x24 the rate-limited cursor `auto` row shows no window name (`▸  0.0% · resets in 3d12h · rate l…`), and at 93x30 it shows `a…`. |
+| V3 | pass | `TestScreenDropsPartsInMeasuredOrder` passes. At 100 columns, height 46 → 23: resets only at 46; balances at 31 and up; cards at 27 and up; compact rows at 24–26; too-small at 23. That is the R3 order with the 80x24 floor. |
+| V4 | pass | `git diff 103b84d` shows no change to `layout.go` or to any pre-existing `_test.go` in `internal/dash/layout`. 70 non-`TestScreen` test results in the package pass. |
+| V5 | pass | `git diff 103b84d..HEAD --stat` lists `screen.go`, `screen_test.go`, ten `testdata/screen-*.txt` files, and this verification record. A literal `git diff dev --stat` also shows the one-shot task, because `dev` moved to `70d9f8f` after this branch was cut. Those files are not changed by this branch. |
 | V6 | pass | `gofmt -l .` prints nothing. `go vet ./...`, `go test -race ./...` and `bash .github/scripts/next-version_test.sh` exit 0. |
-
-## Repair needed
-
-Decide how the floor applies to the measured card tiers. Then make 79x23 (the board fixture) produce the "too small" frame, as R5 and decision 7 require. The brief also asks for a 60x40 1-column golden, and 60 is below the 80-column floor. The manager must resolve this conflict: either the floor applies only to height, or 60x40 is also "too small".
