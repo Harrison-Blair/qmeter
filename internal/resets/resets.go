@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,14 +20,7 @@ import (
 
 // Sort returns a stable copy, with unknown reset times last.
 func Sort(windows []provider.Window) []provider.Window {
-	out := append([]provider.Window(nil), windows...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].ResetsAt.IsZero() {
-			return false
-		}
-		return out[j].ResetsAt.IsZero() || out[i].ResetsAt.Before(out[j].ResetsAt)
-	})
-	return out
+	return display.SortWindows(windows)
 }
 
 // MinWidth is the glyph, ten-cell name, percent, 43-cell axis and countdown.
