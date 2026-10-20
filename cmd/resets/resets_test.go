@@ -37,6 +37,29 @@ func testRoot(t *testing.T, ps ...provider.Provider) (*cobra.Command, *bytes.Buf
 	return root, &out, &errOut, &calls
 }
 
+func TestHelpDescribesR1ResetList(t *testing.T) {
+	root, out, _, _ := testRoot(t, providertest.Succeeding("claude", nil))
+	root.SetArgs([]string{"resets", "--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	resetCmd, _, err := root.Find([]string{"resets"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetCmd.Short != "Show usage windows in reset order" {
+		t.Errorf("resets short help = %q", resetCmd.Short)
+	}
+	for _, want := range []string{"countdown", "reset date and time", "current percentage"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("resets help omits %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "timeline") {
+		t.Errorf("resets help describes the removed timeline:\n%s", out.String())
+	}
+}
+
 func TestFilteringAndJSON(t *testing.T) {
 	a := providertest.Succeeding("claude", []provider.Window{{Name: "weekly", RemainingPercent: 65, ResetsAt: time.Date(2026, 9, 18, 12, 50, 0, 0, time.UTC), Period: 100 * time.Minute}})
 	b := providertest.Succeeding("codex", []provider.Window{{Name: "credits", RemainingPercent: 50}})

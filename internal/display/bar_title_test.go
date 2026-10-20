@@ -9,6 +9,18 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+func TestBarShortensResetBeforeTruncatingName(t *testing.T) {
+	window := provider.Window{
+		Name:             "fable weekly",
+		RemainingPercent: 96,
+		ResetsAt:         barNow.Add(6*24*time.Hour + 8*time.Hour),
+	}
+	title := Bar(window, barNow, 35, plainRenderer())[0]
+	if got, want := strings.TrimRight(title, " "), "▸ fable weekly 96.0% · 6d8h"; got != want {
+		t.Fatalf("title = %q, want %q", got, want)
+	}
+}
+
 func TestBarKeepsTheWindowNameAndShortensTheRightSideFirst(t *testing.T) {
 	window := provider.Window{
 		Name:             "automatically",

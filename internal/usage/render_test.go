@@ -69,9 +69,9 @@ func TestRenderText_CardsGoldenWidths(t *testing.T) {
 		return "│ " + text + strings.Repeat(" ", padding) + " │"
 	}
 	bottom := func(width int) string { return "╰" + strings.Repeat("─", width-2) + "╯" }
-	long := strings.Repeat("界", 26) + "…"
+	long := strings.Repeat("界", 30)
 	want80 := "╭─ ◆ claude " + strings.Repeat("─", 61) + " max ─╮\n" +
-		body("▸ "+long+" 80.0% · resets in 2h", 80) + "\n" +
+		body("▸ "+long+" 80.0% · 2h", 80) + "\n" +
 		body(strings.Repeat("━", 61)+strings.Repeat("─", 15), 80) + "\n" +
 		body("", 80) + "\n" +
 		body("▸ weekly"+strings.Repeat(" ", 38)+"0.0% · resets - · rate limited", 80) + "\n" +
@@ -82,10 +82,10 @@ func TestRenderText_CardsGoldenWidths(t *testing.T) {
 		body("credit pack $1.50", 80) + "\n" + bottom(80) + "\n" +
 		"╭─ ▲ cursor " + strings.Repeat("─", 63) + " - ─╮\n" +
 		body("not detected: not logged in", 80) + "\n" + bottom(80) + "\n"
-	long120 := strings.Repeat("界", 15) + "…"
+	long120 := strings.Repeat("界", 20) + "…"
 	blank59 := body("", 59)
 	want120 := "╭─ ◆ claude " + strings.Repeat("─", 40) + " max ─╮  " + "╭─ ● codex " + strings.Repeat("─", 43) + " - ─╮\n" +
-		body("▸ "+long120+"  80.0% · resets in 2h", 59) + "  " + body("error: offline", 59) + "\n" +
+		body("▸ "+long120+"  80.0% · 2h", 59) + "  " + body("error: offline", 59) + "\n" +
 		body(strings.Repeat("━", 44)+strings.Repeat("─", 11), 59) + "  " + blank59 + "\n" +
 		blank59 + "  " + blank59 + "\n" +
 		body("▸ weekly"+strings.Repeat(" ", 17)+"0.0% · resets - · rate limited", 59) + "  " + blank59 + "\n" +
@@ -161,12 +161,6 @@ func TestFormatResets_LargestTwoNonZeroUnits(t *testing.T) {
 				t.Fatalf("formatResets(%s) = %q, want %q", tt.d, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestRenderText_ZeroResetsAtRendersDashNotCountdown(t *testing.T) {
-	if got := ResetsCell(provider.Window{}, renderNow); got != "-" {
-		t.Fatalf("got %q, want %q", got, "-")
 	}
 }
 

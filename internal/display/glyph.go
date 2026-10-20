@@ -12,7 +12,7 @@ var providerGlyphs = map[string]string{
 	"cursor":      "▲",
 }
 
-// ProviderGlyph identifies a provider on gauges and reset timelines.
+// ProviderGlyph identifies a provider on dashboard cards.
 func ProviderGlyph(id string) string {
 	if glyph, ok := providerGlyphs[id]; ok {
 		return glyph

@@ -22,20 +22,6 @@ const (
 	RateLimited lipgloss.Color = "1"
 )
 
-// PaceColor is shared by the CLI status and dashboard badge.
-func PaceColor(status string) lipgloss.Color {
-	switch status {
-	case "behind":
-		return "208"
-	case "on pace":
-		return "10"
-	case "ahead":
-		return "11"
-	default:
-		return Neutral
-	}
-}
-
 // Band reports remaining-allowance health; rate limiting overrides the band.
 func Band(pct float64, limited bool) lipgloss.Color {
 	switch {
@@ -113,16 +99,6 @@ func Table(w io.Writer, rows [][]Cell) error {
 // interactive dashboard configuration.
 func ProviderCell(r *lipgloss.Renderer, id string) Cell {
 	return Cell{id, r.NewStyle().Foreground(Default().Accent(id))}
-}
-func RemainingCell(r *lipgloss.Renderer, pct float64, limited bool) Cell {
-	return Cell{fmt.Sprintf("%.1f%%", pct), r.NewStyle().Foreground(Band(pct, limited))}
-}
-func ResetCell(r *lipgloss.Renderer, text string, limited bool) Cell {
-	color := Countdown
-	if limited {
-		color = RateLimited
-	}
-	return Cell{text, r.NewStyle().Foreground(color)}
 }
 func Header(r *lipgloss.Renderer, names ...string) []Cell {
 	cells := make([]Cell, len(names))

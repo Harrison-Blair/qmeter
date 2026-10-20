@@ -14,7 +14,6 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 )
 
@@ -106,86 +105,6 @@ func TestSort(t *testing.T) {
 	if !reflect.DeepEqual(windows, before) {
 		t.Fatal("Sort mutated its input")
 	}
-}
-
-func TestRow(t *testing.T) {
-	r := lipgloss.NewRenderer(io.Discard)
-	r.SetColorProfile(termenv.Ascii)
-	for _, tc := range []struct {
-		name    string
-		reset   time.Time
-		limited bool
-		marker  int
-		glyph   string
-	}{
-		{"known", now.Add(24 * time.Hour), false, 6, "◆"},
-		{"beyond", now.Add(8 * 24 * time.Hour), false, 42, "▸"},
-		{"unknown", time.Time{}, false, -1, ""},
-		{"limited", now.Add(4 * time.Hour), true, 1, "◆"},
-		{"due", now.Add(-time.Hour), false, 0, "◆"},
-		{"seven days", now.Add(7 * 24 * time.Hour), false, 42, "◆"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, width := range []int{70, 80, 120} {
-				w := provider.Window{Provider: "claude", Name: strings.Repeat("界", 60), RemainingPercent: 12, ResetsAt: tc.reset, RateLimited: tc.limited}
-				got := Row(w, now, width, r, display.Default())
-				if runewidth.StringWidth(got) != width {
-					t.Fatalf("row width = %d, want %d: %q", runewidth.StringWidth(got), width, got)
-				}
-				nameWidth := width - 60
-				label := strings.TrimPrefix(runewidth.Truncate(got, 2+nameWidth, ""), runewidth.Truncate(got, 2, ""))
-				if strings.ContainsAny(label, "◆▸") {
-					t.Fatalf("marker overlaps name cells [2,%d): %q", 2+nameWidth, label)
-				}
-				// The final 50 cells hold the 43-cell axis, gutter and countdown.
-				prefix := runewidth.Truncate(got, width-50, "")
-				axis := strings.TrimPrefix(got, prefix)
-				axis = string([]rune(axis)[:43])
-				if tc.marker < 0 {
-					if strings.TrimSpace(axis) != "" {
-						t.Fatalf("unknown reset axis = %q", axis)
-					}
-				} else {
-					want := strings.Repeat("·", tc.marker) + tc.glyph + strings.Repeat(" ", 42-tc.marker)
-					if axis != want {
-						t.Fatalf("axis = %q, want %q", axis, want)
-					}
-				}
-				if tc.limited && !strings.Contains(label, " ↑RL") {
-					t.Fatalf("missing rate-limit relief label: %q", got)
-				}
-				if strings.Count(got, "◆") != 1+boolInt(tc.glyph == "◆") {
-					t.Fatalf("marker overlaps label: %q", got)
-				}
-			}
-		})
-	}
-	r.SetColorProfile(termenv.ANSI)
-	got := Row(provider.Window{Provider: "codex", Name: "5h", RemainingPercent: 80, ResetsAt: now.Add(time.Hour), RateLimited: true}, now, 80, r, display.Default())
-	if !strings.Contains(got, "\x1b[31m●\x1b[0m") || !strings.Contains(got, "\x1b[31m 80.0%\x1b[0m") {
-		t.Fatalf("marker and percent lack health band: %q", got)
-	}
-}
-func TestRowLimitedNameAtMinWidth(t *testing.T) {
-	r := lipgloss.NewRenderer(io.Discard)
-	r.SetColorProfile(termenv.Ascii)
-	w := provider.Window{Provider: "codex", Name: "weekly", RemainingPercent: 12, ResetsAt: now.Add(4 * time.Hour), RateLimited: true}
-	got := Row(w, now, MinWidth, r, display.Default())
-	t.Logf("%d-cell row: %q", runewidth.StringWidth(got), got)
-	if runewidth.StringWidth(got) != MinWidth {
-		t.Fatalf("row width = %d, want %d", runewidth.StringWidth(got), MinWidth)
-	}
-	label := strings.TrimPrefix(runewidth.Truncate(got, 12, ""), "● ")
-	if label != "weekly ↑RL" {
-		t.Fatalf("name and label at MinWidth = %q, want %q", label, "weekly ↑RL")
-	}
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func TestTextUsesR1AtEveryWidth(t *testing.T) {

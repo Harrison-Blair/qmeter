@@ -15,7 +15,7 @@ func TestRoot_RegistersUsageAndPersistentJSONFlag(t *testing.T) {
 		t.Error("root has no persistent --json flag")
 	}
 
-	for _, name := range []string{"usage", "pace", "spend", "version", "update"} {
+	for _, name := range []string{"usage", "spend", "version", "update"} {
 		found := false
 		for _, sub := range root.Commands() {
 			if sub.Name() == name {
@@ -102,6 +102,29 @@ func TestRoot_HelpListsTheSubcommandsAndTheDashboardFlags(t *testing.T) {
 	}
 }
 
+func TestRoot_PaceCommandIsRemoved(t *testing.T) {
+	command := "pa" + "ce"
+	root := NewRootCmd()
+	for _, sub := range root.Commands() {
+		if sub.Name() == command {
+			t.Fatal("removed command is still registered")
+		}
+	}
+
+	var out bytes.Buffer
+	err := ExecuteWithArgs([]string{command}, &out)
+	if err == nil || !strings.Contains(err.Error(), `unknown command "`+command+`"`) {
+		t.Fatalf("error = %v, want unknown-command error", err)
+	}
+	out.Reset()
+	if err := ExecuteWithArgs([]string{"--help"}, &out); err != nil {
+		t.Fatalf("ExecuteWithArgs(--help): %v", err)
+	}
+	if strings.Contains(out.String(), command) {
+		t.Fatalf("help output lists removed command: %s", out.String())
+	}
+}
+
 func TestExecuteWithArgs_UnknownCommandStillFails(t *testing.T) {
 	var out bytes.Buffer
 
@@ -129,7 +152,7 @@ func TestFitFlagIsGone(t *testing.T) {
 }
 
 func TestWidthFlagIsRootLocal(t *testing.T) {
-	for _, name := range []string{"usage", "pace", "spend", "resets", "version", "update"} {
+	for _, name := range []string{"usage", "spend", "resets", "version", "update"} {
 		root := NewRootCmd()
 		root.SetArgs([]string{name, "--width", "50"})
 		root.SetOut(&bytes.Buffer{})
