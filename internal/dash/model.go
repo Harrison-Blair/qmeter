@@ -3,6 +3,7 @@ package dash
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/dash/theme"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // scheduleTick is the cancellable one-shot timer seam. Tests replace it so
@@ -55,6 +57,7 @@ type Options struct {
 	RefreshInterval time.Duration
 	Now             func() time.Time
 	Ctx             context.Context
+	Renderer        *lipgloss.Renderer
 }
 
 // Model is the dashboard's Bubble Tea model.
@@ -66,6 +69,7 @@ type Model struct {
 	cancelRefresh     context.CancelFunc
 	now               func() time.Time
 	ctx               context.Context
+	renderer          *lipgloss.Renderer
 
 	width     int
 	height    int
@@ -95,6 +99,7 @@ func New(o Options) Model {
 		refreshInterval: o.RefreshInterval,
 		now:             o.Now,
 		ctx:             o.Ctx,
+		renderer:        o.Renderer,
 		loading:         true,
 	}
 	if m.now == nil {
@@ -108,6 +113,9 @@ func New(o Options) Model {
 	}
 	if m.ctx == nil {
 		m.ctx = context.Background()
+	}
+	if m.renderer == nil {
+		m.renderer = newDashboardRenderer(os.Stdout)
 	}
 	return m
 }
@@ -223,5 +231,6 @@ func (m Model) View() string {
 		FetchedAt:    m.updatedAt,
 		Loading:      m.loading,
 		SpinnerFrame: m.spin,
+		Renderer:     m.renderer,
 	}), "\n")
 }

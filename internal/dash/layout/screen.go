@@ -16,6 +16,8 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+var rendererFactory = display.Renderer
+
 const (
 	screenFloorWidth  = 80
 	screenFloorHeight = 24
@@ -30,6 +32,7 @@ type ScreenOptions struct {
 	FetchedAt    time.Time
 	Loading      bool
 	SpinnerFrame int
+	Renderer     *lipgloss.Renderer
 }
 
 type screenCard struct {
@@ -61,7 +64,10 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 		return make([]string, height)
 	}
 
-	renderer := display.Renderer(os.Stdout)
+	renderer := options.Renderer
+	if renderer == nil {
+		renderer = rendererFactory(os.Stdout)
+	}
 	now := options.Now
 	if now.IsZero() {
 		now = time.Now()
