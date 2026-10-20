@@ -61,7 +61,7 @@ func MessageRows(renderer *lipgloss.Renderer, r Result) [][]display.Cell {
 func ResetsCell(w provider.Window, now time.Time) string {
 	cell := "-"
 	if !w.ResetsAt.IsZero() {
-		cell = "in " + formatResets(w.ResetsAt.Sub(now))
+		cell = "in " + display.FormatCountdown(w.ResetsAt.Sub(now))
 	}
 	if w.RateLimited {
 		cell += "  (rate limited)"
@@ -69,32 +69,7 @@ func ResetsCell(w provider.Window, now time.Time) string {
 	return cell
 }
 
-// formatResets renders d as its largest two non-zero units: "<d>d<h>h",
-// "<h>h<m>m" or "<m>m", dropping a trailing zero unit ("12d", not "12d0h").
-// A duration that has already elapsed, or is shorter than a minute, is
-// "0m" — the window is due, which is not the same as having no reset time
-// at all (that renders as "-", see ResetsCell).
-func formatResets(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	days := int64(d / (24 * time.Hour))
-	hours := int64(d/time.Hour) % 24
-	minutes := int64(d/time.Minute) % 60
-
-	switch {
-	case days > 0 && hours > 0:
-		return fmt.Sprintf("%dd%dh", days, hours)
-	case days > 0:
-		return fmt.Sprintf("%dd", days)
-	case hours > 0 && minutes > 0:
-		return fmt.Sprintf("%dh%dm", hours, minutes)
-	case hours > 0:
-		return fmt.Sprintf("%dh", hours)
-	default:
-		return fmt.Sprintf("%dm", minutes)
-	}
-}
+func formatResets(d time.Duration) string { return display.FormatCountdown(d) }
 
 // jsonEnvelope is the --json wire form: three keys, always present, never
 // null. Windows marshal through provider.Window's own MarshalJSON.
