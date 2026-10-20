@@ -56,4 +56,7 @@ packages load settings, provide the palette and compose the page. The
 
 ## Instructions
 
-<!-- Add agent instructions below. -->
+- `q` and `ctrl+c` quit in every state.
+- Each key press gets a visible response at once.
+- The input loop never waits for I/O. Run slow work in a background command.
+- Each TUI has a test that sends a quit key while slow work runs and checks that the program exits.

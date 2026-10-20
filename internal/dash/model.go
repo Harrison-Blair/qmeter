@@ -177,6 +177,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin = (m.spin + 1) % len([]rune(spinFrames))
 		return m, spinTick()
 	case tea.KeyMsg:
+		// Bubble Tea can group adjacent rune keys into one message.
+		if msg.Type == tea.KeyRunes && len(msg.Runes) > 1 && !msg.Alt && !msg.Paste {
+			for _, key := range msg.Runes {
+				if key == 'q' {
+					m.cancelRefreshTimer()
+					return m, tea.Quit
+				}
+			}
+			for _, key := range msg.Runes {
+				if key == 'r' {
+					if m.loading {
+						return m, nil
+					}
+					m.cancelRefreshTimer()
+					m.refreshGeneration++
+					m.loading = true
+					return m, m.startFetch()
+				}
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			m.cancelRefreshTimer()
