@@ -74,6 +74,7 @@ type Model struct {
 	width     int
 	height    int
 	res       usage.Result
+	cache     cache
 	haveRes   bool
 	updatedAt time.Time
 	loading   bool
@@ -169,6 +170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resultMsg:
 		m.res, m.haveRes, m.loading = msg.res, true, false
 		m.updatedAt = m.now()
+		m.cache = m.cache.update(msg.res, m.updatedAt)
 		m.spin = 0
 		return m, m.scheduleRefresh()
 	case refreshMsg:
@@ -232,5 +234,6 @@ func (m Model) View() string {
 		Loading:      m.loading,
 		SpinnerFrame: m.spin,
 		Renderer:     m.renderer,
+		Cached:       m.cache,
 	}), "\n")
 }

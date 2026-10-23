@@ -455,3 +455,34 @@ func windowIDs(result usage.Result) string {
 	}
 	return strings.Join(ids, ",")
 }
+
+func TestViewShowsTheCachedResponseUntilATokenExpiry(t *testing.T) {
+	clock := firstFetch
+	m := New(Options{Now: func() time.Time { return clock }})
+	m = resize(t, m, 140, 45)
+	m, _ = step(t, m, resultMsg{res: codexSuccess(28)})
+
+	clock = secondFetch
+	m, _ = step(t, m, resultMsg{res: codexFailure("")})
+	view := m.View()
+	for _, want := range []string{"◌ cached · fetched 14:22:07 · offline", "28.0%"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view after a timeout omits %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "error: offline") {
+		t.Errorf("view after a timeout shows the error line:\n%s", view)
+	}
+
+	clock = thirdFetch
+	m, _ = step(t, m, resultMsg{res: codexFailure(usage.KindTokenExpired)})
+	view = m.View()
+	if !strings.Contains(view, "error: offline") {
+		t.Errorf("view after a token expiry omits the error line:\n%s", view)
+	}
+	for _, unwanted := range []string{"◌ cached", "28.0%"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("view after a token expiry shows %q:\n%s", unwanted, view)
+		}
+	}
+}
