@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -516,4 +517,75 @@ func (d *deadlineRecorder) Fetch(ctx context.Context) (provider.Usage, error) {
 	deadline, ok := ctx.Deadline()
 	d.record(deadline, ok)
 	return provider.Usage{}, nil
+}
+
+func TestRun_ErrorKindMarksOnlyAnExpiredToken(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range []struct {
+		name    string
+		ctx     context.Context
+		timeout time.Duration
+		p       provider.Provider
+		want    ErrorKind
+	}{
+		{
+			name:    "token expired wrapped",
+			ctx:     context.Background(),
+			timeout: testTimeout,
+			p:       providertest.Erroring("claude", fmt.Errorf("claude: fetch usage: %w", provider.ErrTokenExpired{Tool: "claude"})),
+			want:    KindTokenExpired,
+		},
+		{
+			name:    "timeout",
+			ctx:     context.Background(),
+			timeout: 20 * time.Millisecond,
+			p:       providertest.Slow("claude", time.Hour, nil),
+		},
+		{
+			name:    "cancellation",
+			ctx:     canceled,
+			timeout: testTimeout,
+			p:       providertest.Slow("claude", time.Hour, nil),
+		},
+		{
+			name:    "rate limit",
+			ctx:     context.Background(),
+			timeout: testTimeout,
+			p:       providertest.Erroring("claude", provider.ErrRateLimited{RetryAfter: time.Minute}),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := run(tc.ctx, []provider.Provider{tc.p}, "", tc.timeout)
+
+			if len(got.Errors) != 1 {
+				t.Fatalf("Errors = %v, want one entry", got.Errors)
+			}
+			if got.Errors[0].Kind != tc.want {
+				t.Errorf("Kind = %q, want %q", got.Errors[0].Kind, tc.want)
+			}
+		})
+	}
+}
+
+func TestRun_UndetectedKeepsTheZeroKind(t *testing.T) {
+	got := run(context.Background(), []provider.Provider{providertest.Undetected("claude", "no credentials")}, "claude", testTimeout)
+
+	if len(got.Undetected) != 1 || got.Undetected[0].Kind != "" {
+		t.Fatalf("Undetected = %#v, want one entry with the zero kind", got.Undetected)
+	}
+}
+
+func TestRenderJSON_TokenExpiredErrorKeepsItsWireForm(t *testing.T) {
+	p := providertest.Erroring("codex", fmt.Errorf("codex: fetch usage: %w", provider.ErrTokenExpired{Tool: "codex"}))
+	res := run(context.Background(), []provider.Provider{p}, "", testTimeout)
+
+	var out bytes.Buffer
+	if err := RenderJSON(&out, res); err != nil {
+		t.Fatalf("RenderJSON: %v", err)
+	}
+	want := `{"windows":[],"errors":[{"provider":"codex","message":"token expired, open codex to refresh"}],"undetected":[]}` + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("output mismatch\n got: %s\nwant: %s", got, want)
+	}
 }
