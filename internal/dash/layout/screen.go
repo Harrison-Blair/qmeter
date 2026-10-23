@@ -33,6 +33,17 @@ type ScreenOptions struct {
 	Loading      bool
 	SpinnerFrame int
 	Renderer     *lipgloss.Renderer
+	// Cached holds the last good response of each provider, by provider ID.
+	// A provider with an entry and a failure in the result shows the entry.
+	Cached map[string]CachedProvider
+}
+
+// CachedProvider is the last good response the dashboard kept for one
+// provider.
+type CachedProvider struct {
+	Windows   []provider.Window
+	Balances  []provider.Balance
+	FetchedAt time.Time
 }
 
 type screenCard struct {
@@ -40,6 +51,7 @@ type screenCard struct {
 	windows  []provider.Window
 	balances []display.Balance
 	messages []display.CardMessage
+	cached   bool
 }
 
 type screenCardRow struct {
@@ -74,7 +86,7 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 	}
 	providers := presentProviders(result)
 	if width < screenFloorWidth || height < screenFloorHeight {
-		needWidth, needHeight := compactNeed(result, now, renderer)
+		needWidth, needHeight := compactNeed(result, options.Cached, now, renderer)
 		return tooSmallFrame(width, height, needWidth, needHeight)
 	}
 	if options.FetchedAt.IsZero() {
@@ -84,7 +96,7 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 		return centeredBodyFrame(width, height, headerLine(result, 0, width, options, renderer), "no providers detected", keyLine(options, width, renderer))
 	}
 
-	cards := screenCards(result, providers)
+	cards := screenCards(result, providers, options.Cached)
 	canUseTwo := len(cards) > 1 && (width-screenGutter)/2 >= 30
 	if canUseTwo {
 		for _, tier := range []struct{ resets, balances bool }{{true, true}, {false, true}, {false, false}} {
@@ -100,7 +112,7 @@ func Screen(result usage.Result, width, height int, options ScreenOptions) []str
 		}
 	}
 
-	needWidth, needHeight := compactNeed(result, now, renderer)
+	needWidth, needHeight := compactNeed(result, options.Cached, now, renderer)
 	if width >= needWidth && height >= needHeight {
 		return compactFrame(result, width, height, now, options, renderer)
 	}
@@ -118,17 +130,22 @@ func share(total, gaps, index int) int {
 	return n
 }
 
-func screenCards(result usage.Result, providers []provInfo) []screenCard {
+func screenCards(result usage.Result, providers []provInfo, cached map[string]CachedProvider) []screenCard {
 	cards := make([]screenCard, 0, len(providers))
 	for _, p := range providers {
 		card := screenCard{provider: p}
-		for _, w := range result.Windows {
+		windows, balances := result.Windows, result.Balances
+		entry, ok := cachedFor(result, cached, p.id)
+		if ok {
+			windows, balances, card.cached = entry.Windows, entry.Balances, true
+		}
+		for _, w := range windows {
 			if w.Provider == p.id {
 				card.windows = append(card.windows, w)
 			}
 		}
 		if len(card.windows) == 0 {
-			for _, b := range result.Balances {
+			for _, b := range balances {
 				if b.Provider == p.id {
 					card.balances = append(card.balances, display.Balance{Name: b.Name, Amount: balanceAmount(b)})
 				}
@@ -136,7 +153,11 @@ func screenCards(result usage.Result, providers []provInfo) []screenCard {
 		}
 		for _, e := range result.Errors {
 			if e.Provider == p.id {
-				card.messages = append(card.messages, display.CardMessage{Text: "error: " + e.Message, Error: true})
+				text := "error: " + e.Message
+				if ok {
+					text = cachedMessage(entry, e.Message)
+				}
+				card.messages = append(card.messages, display.CardMessage{Text: text, Error: true})
 			}
 		}
 		for _, u := range result.Undetected {
@@ -179,7 +200,11 @@ func renderMeasured(result usage.Result, cards []screenCard, width, height, colu
 		cardHeight := row.height + share(extra, len(rows), i)
 		cardLines := make([][]string, len(row.cards))
 		for col, card := range row.cards {
-			cardLines[col], _ = display.ProviderCard(card.provider.id, providerPlan(result, card.provider.id), card.windows, card.balances, card.messages, row.widths[col], cardHeight, now, renderer, options.Theme)
+			draw := display.ProviderCard
+			if card.cached {
+				draw = display.CachedProviderCard
+			}
+			cardLines[col], _ = draw(card.provider.id, providerPlan(card.windows), card.windows, card.balances, card.messages, row.widths[col], cardHeight, now, renderer, options.Theme)
 		}
 		for y := 0; y < cardHeight; y++ {
 			line := ""
@@ -286,16 +311,16 @@ func fitAnsi(line string, width int) string {
 	return line + strings.Repeat(" ", max(0, width-ansi.StringWidth(line)))
 }
 
-func compactNeed(result usage.Result, now time.Time, renderer *lipgloss.Renderer) (int, int) {
+func compactNeed(result usage.Result, cached map[string]CachedProvider, now time.Time, renderer *lipgloss.Renderer) (int, int) {
 	width := screenFloorWidth
 	rows := 0
-	for _, window := range result.Windows {
-		prefix := window.Provider + " " + window.Name
-		width = max(width, compactWindowNeed(window, prefix, now, renderer))
+	for _, row := range compactWindows(result, cached) {
+		prefix := row.window.Provider + " " + row.window.Name
+		width = max(width, compactWindowNeed(row.window, prefix, now, renderer))
 		rows++
 	}
 	for _, message := range result.Errors {
-		width = max(width, runewidth.StringWidth(message.Provider+" error: "+message.Message))
+		width = max(width, runewidth.StringWidth(message.Provider+" "+compactErrorText(result, cached, message)))
 		rows++
 	}
 	for _, message := range result.Undetected {
@@ -310,7 +335,7 @@ func compactWindowNeed(window provider.Window, prefix string, now time.Time, ren
 	blankName := window
 	blankName.Name = ""
 	for width := nameWidth; ; width++ {
-		line := display.CompactBar(blankName, now, width, nameWidth, renderer)
+		line := display.CompactBar(blankName, now, width, nameWidth, false, renderer)
 		if ansi.StringWidth(line) <= width {
 			return width
 		}
@@ -328,20 +353,22 @@ func compactFrame(result usage.Result, width, height int, now time.Time, options
 		lines[i] = strings.Repeat(" ", width)
 	}
 	lines[0] = headerLine(result, len(presentProviders(result)), width, options, renderer)
-	body := compactRows(result, width, now, options.Theme, renderer)
+	body := compactRows(result, options.Cached, width, now, options.Theme, renderer)
 	start := 1 + max(0, (height-2-len(body))/2)
 	copy(lines[start:], body)
 	lines[height-1] = keyLine(options, width, renderer)
 	return lines
 }
 
-func compactRows(result usage.Result, width int, now time.Time, th theme.Theme, renderer *lipgloss.Renderer) []string {
+func compactRows(result usage.Result, cached map[string]CachedProvider, width int, now time.Time, th theme.Theme, renderer *lipgloss.Renderer) []string {
+	windows := compactWindows(result, cached)
 	nameWidth := 0
-	for _, window := range result.Windows {
-		nameWidth = max(nameWidth, runewidth.StringWidth(window.Provider+" "+window.Name))
+	for _, row := range windows {
+		nameWidth = max(nameWidth, runewidth.StringWidth(row.window.Provider+" "+row.window.Name))
 	}
 	var rows []string
-	for _, window := range result.Windows {
+	for _, row := range windows {
+		window := row.window
 		parts := []screenPart{
 			{text: window.Provider, style: renderer.NewStyle().Foreground(th.Accent(window.Provider)).Bold(true)},
 			{text: " " + window.Name, style: renderer.NewStyle()},
@@ -350,11 +377,11 @@ func compactRows(result usage.Result, width int, now time.Time, th theme.Theme, 
 		remaining := width - nameWidth
 		blankName := window
 		blankName.Name = ""
-		suffix := display.CompactBar(blankName, now, remaining, 0, renderer)
+		suffix := display.CompactBar(blankName, now, remaining, 0, row.cached, renderer)
 		rows = append(rows, name+suffix)
 	}
 	for _, message := range result.Errors {
-		rows = append(rows, compactMessage(message.Provider, "error: "+message.Message, width, th, renderer, true))
+		rows = append(rows, compactMessage(message.Provider, compactErrorText(result, cached, message), width, th, renderer, true))
 	}
 	for _, message := range result.Undetected {
 		rows = append(rows, compactMessage(message.Provider, "not detected: "+message.Message, width, th, renderer, false))

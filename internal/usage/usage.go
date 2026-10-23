@@ -26,7 +26,16 @@ const DefaultProviderTimeout = 10 * time.Second
 type ProviderError struct {
 	Provider string
 	Message  string
+	// Kind classifies a fetch failure. The zero value means any failure
+	// without a kind of its own; an undetected provider always has it.
+	Kind ErrorKind
 }
+
+// ErrorKind is the typed class of a ProviderError.
+type ErrorKind string
+
+// KindTokenExpired marks a fetch that failed on provider.ErrTokenExpired.
+const KindTokenExpired ErrorKind = "token-expired"
 
 // Result is everything one `qmeter usage` run produced.
 type Result struct {
@@ -136,7 +145,7 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 
 	for i, p := range detected {
 		if err := outcomes[i].err; err != nil {
-			res.Errors = append(res.Errors, ProviderError{Provider: p.ID(), Message: message(ctx, err, timeout)})
+			res.Errors = append(res.Errors, ProviderError{Provider: p.ID(), Message: message(ctx, err, timeout), Kind: kind(err)})
 			continue
 		}
 		for _, w := range outcomes[i].usage.Windows {
@@ -155,6 +164,16 @@ func run(ctx context.Context, providers []provider.Provider, only string, timeou
 		}
 	}
 	return res
+}
+
+// kind classifies a Fetch error with the same errors.As test that message
+// uses for an expired token.
+func kind(err error) ErrorKind {
+	var expired provider.ErrTokenExpired
+	if errors.As(err, &expired) {
+		return KindTokenExpired
+	}
+	return ""
 }
 
 // message maps a Fetch error to the exact text the renderer prints. Typed
