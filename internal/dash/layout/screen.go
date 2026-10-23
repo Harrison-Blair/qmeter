@@ -402,9 +402,11 @@ func compactMessage(providerID, message string, width int, th theme.Theme, rende
 }
 
 func headerLine(result usage.Result, providers, width int, options ScreenOptions, renderer *lipgloss.Renderer) string {
-	timeText := "fetching…"
+	// The right side, widest first: a narrow line drops the clock, then all.
+	timeTexts := []string{"fetching…"}
 	if !options.FetchedAt.IsZero() {
-		timeText = "fetched " + options.FetchedAt.Local().Format("15:04")
+		fetched := "fetched " + options.FetchedAt.Local().Format("15:04:05")
+		timeTexts = []string{fetched + " · now " + options.Now.Local().Format("15:04:05"), fetched}
 	}
 	summary := fmt.Sprintf("%d %s · %d %s · %d %s", providers, plural(providers, "provider"), len(result.Windows), plural(len(result.Windows), "window"), len(result.Balances), plural(len(result.Balances), "balance"))
 	leftParts := []screenPart{
@@ -412,13 +414,16 @@ func headerLine(result usage.Result, providers, width int, options ScreenOptions
 		{text: " " + summary, style: renderer.NewStyle().Foreground(display.Neutral).Faint(true)},
 	}
 	leftWidth := runewidth.StringWidth("qmeter " + summary)
-	rightWidth := runewidth.StringWidth(timeText)
-	if leftWidth+rightWidth+1 > width {
-		return renderScreenParts(leftParts, width, renderer)
+	for _, timeText := range timeTexts {
+		rightWidth := runewidth.StringWidth(timeText)
+		if leftWidth+rightWidth+1 > width {
+			continue
+		}
+		left := renderScreenParts(leftParts, leftWidth, renderer)
+		right := renderScreenParts([]screenPart{{text: timeText, style: renderer.NewStyle().Foreground(display.Neutral).Faint(true)}}, rightWidth, renderer)
+		return left + strings.Repeat(" ", width-leftWidth-rightWidth) + right
 	}
-	left := renderScreenParts(leftParts, leftWidth, renderer)
-	right := renderScreenParts([]screenPart{{text: timeText, style: renderer.NewStyle().Foreground(display.Neutral).Faint(true)}}, rightWidth, renderer)
-	return left + strings.Repeat(" ", width-leftWidth-rightWidth) + right
+	return renderScreenParts(leftParts, width, renderer)
 }
 
 func plural(n int, singular string) string {

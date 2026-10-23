@@ -42,6 +42,10 @@ var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Ti
 	return cmd, cancel
 }
 
+// clockTick is the seam of the one-second clock. Tests replace it to check
+// the interval and to drive a tick without waiting.
+var clockTick = tea.Tick
+
 const (
 	spinFrames   = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 	spinInterval = 80 * time.Millisecond
@@ -83,6 +87,8 @@ type Model struct {
 
 type spinMsg struct{}
 
+type clockMsg struct{}
+
 type resultMsg struct {
 	res usage.Result
 }
@@ -121,9 +127,9 @@ func New(o Options) Model {
 	return m
 }
 
-// Init starts the first fetch.
+// Init starts the first fetch and the clock.
 func (m Model) Init() tea.Cmd {
-	return m.startFetch()
+	return tea.Batch(m.fetch(), spinTick(), clock())
 }
 
 // startFetch is the fetch together with the spinner that turns while it runs.
@@ -133,6 +139,11 @@ func (m Model) startFetch() tea.Cmd {
 
 func spinTick() tea.Cmd {
 	return tea.Tick(spinInterval, func(time.Time) tea.Msg { return spinMsg{} })
+}
+
+// clock redraws the frame once each second so the header's time stays current.
+func clock() tea.Cmd {
+	return clockTick(time.Second, func(time.Time) tea.Msg { return clockMsg{} })
 }
 
 func (m Model) fetch() tea.Cmd {
@@ -189,6 +200,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelRefreshTimer()
 		m.loading = true
 		return m, m.startFetch()
+	case clockMsg:
+		return m, clock()
 	case spinMsg:
 		if !m.loading {
 			return m, nil

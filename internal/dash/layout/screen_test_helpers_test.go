@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var now = time.Date(2026, 9, 16, 14, 22, 7, 0, time.UTC)
+var now = time.Date(2026, 9, 16, 14, 22, 7, 0, time.Local)
 
 func goldenLines(t *testing.T, name string) []string {
 	t.Helper()
