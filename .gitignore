@@ -13,8 +13,8 @@
 !LICENSE
 !docs/screenshots/*.png
 
-# Feature specs
-!.hive/spec/**
+# Hive local state
+/.hive/
 
 # Repo config
 !.gitignore
