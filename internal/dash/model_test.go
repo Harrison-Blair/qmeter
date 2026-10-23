@@ -515,3 +515,78 @@ func TestViewDropsTheCacheAfterAnEmptySuccess(t *testing.T) {
 		}
 	}
 }
+
+// fakeClock replaces the clock seam with one that records each interval and
+// returns the tick message at once.
+func fakeClock(t *testing.T) *[]time.Duration {
+	t.Helper()
+	var intervals []time.Duration
+	saved := clockTick
+	t.Cleanup(func() { clockTick = saved })
+	clockTick = func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		intervals = append(intervals, d)
+		return func() tea.Msg { return fn(now) }
+	}
+	return &intervals
+}
+
+func TestInitStartsTheOneSecondClock(t *testing.T) {
+	intervals := fakeClock(t)
+	if cmd := New(Options{}).Init(); cmd == nil {
+		t.Fatal("Init returned no command")
+	}
+	if len(*intervals) != 1 || (*intervals)[0] != time.Second {
+		t.Fatalf("Init scheduled clock ticks %v, want one of 1s", *intervals)
+	}
+}
+
+func TestClockTickReArmsAndOnlyRedraws(t *testing.T) {
+	intervals := fakeClock(t)
+	for _, state := range []struct {
+		name  string
+		model func() Model
+	}{
+		{name: "first fetch", model: func() Model { return resize(t, New(Options{}), 140, 45) }},
+		{name: "shown", model: func() Model { return shown(t, sample(), 140, 45) }},
+		{name: "refreshing", model: func() Model {
+			m, _ := press(t, shown(t, sample(), 140, 45), "r")
+			return m
+		}},
+	} {
+		t.Run(state.name, func(t *testing.T) {
+			before := state.model()
+			*intervals = nil
+			after, next := step(t, before, clockMsg{})
+			if len(*intervals) != 1 || (*intervals)[0] != time.Second {
+				t.Fatalf("tick scheduled clock ticks %v, want one of 1s", *intervals)
+			}
+			if next == nil {
+				t.Fatal("tick returned no next tick")
+			}
+			if _, ok := next().(clockMsg); !ok {
+				t.Fatalf("tick command produced %T, want the next clock tick", next())
+			}
+			if after.loading != before.loading || after.refreshGeneration != before.refreshGeneration || after.spin != before.spin {
+				t.Fatalf("tick changed state: loading %v->%v generation %d->%d spin %d->%d",
+					before.loading, after.loading, before.refreshGeneration, after.refreshGeneration, before.spin, after.spin)
+			}
+		})
+	}
+}
+
+func TestQuitWorksWithAClockTickPending(t *testing.T) {
+	m := shown(t, sample(), 140, 45)
+	tick := m.Init()
+	if tick == nil {
+		t.Fatal("Init returned no command")
+	}
+	for _, key := range []string{"q", "ctrl+c"} {
+		_, cmd := press(t, m, key)
+		if cmd == nil {
+			t.Fatalf("%q returned no command", key)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("%q returned %T, want tea.QuitMsg", key, cmd())
+		}
+	}
+}

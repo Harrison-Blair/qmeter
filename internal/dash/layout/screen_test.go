@@ -470,3 +470,27 @@ func TestScreenCachedBarsRenderFaint(t *testing.T) {
 		})
 	}
 }
+
+func TestScreenHeaderShowsFetchedAndNowToTheSecond(t *testing.T) {
+	frame := layout.Screen(boardScreenFixture(), 140, 45, screenOptions())
+	header := ansi.Strip(frame[0])
+	if want := "fetched 21:23:41 · now 14:22:07"; !strings.HasSuffix(header, want) {
+		t.Fatalf("header = %q, want it to end with %q", header, want)
+	}
+	if cells := runewidth.StringWidth(header); cells != 140 {
+		t.Fatalf("header has %d cells, want 140", cells)
+	}
+}
+
+func TestScreenHeaderBeforeTheFirstResultHasNoClock(t *testing.T) {
+	options := screenOptions()
+	options.FetchedAt = time.Time{}
+	options.Loading = true
+	header := ansi.Strip(layout.Screen(usage.Result{}, 80, 24, options)[0])
+	if !strings.HasSuffix(header, " fetching…") {
+		t.Fatalf("header = %q, want it to end with %q", header, " fetching…")
+	}
+	if strings.Contains(header, "now") {
+		t.Fatalf("header = %q, want no now part before the first result", header)
+	}
+}
