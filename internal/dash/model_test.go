@@ -486,3 +486,32 @@ func TestViewShowsTheCachedResponseUntilATokenExpiry(t *testing.T) {
 		}
 	}
 }
+
+func TestViewDropsTheCacheAfterAnEmptySuccess(t *testing.T) {
+	clock := firstFetch
+	m := New(Options{
+		Providers: []provider.Provider{providertest.Succeeding("codex", nil)},
+		Now:       func() time.Time { return clock },
+	})
+	m = resize(t, m, 140, 45)
+	m, _ = step(t, m, resultMsg{res: codexSuccess(28)})
+
+	empty := usage.Run(context.Background(), []provider.Provider{providertest.Succeeding("codex", nil)}, "")
+	if len(empty.Windows) != 0 || len(empty.Balances) != 0 || len(empty.Errors) != 0 {
+		t.Fatalf("empty success is not empty: %#v", empty)
+	}
+	clock = secondFetch
+	m, _ = step(t, m, resultMsg{res: empty})
+
+	clock = thirdFetch
+	m, _ = step(t, m, resultMsg{res: codexFailure("")})
+	view := m.View()
+	if !strings.Contains(view, "error: offline") {
+		t.Errorf("view after an empty success and a timeout omits the error line:\n%s", view)
+	}
+	for _, unwanted := range []string{"◌ cached", "28.0%", "fetched 14:22:07"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("view after an empty success and a timeout shows %q:\n%s", unwanted, view)
+		}
+	}
+}

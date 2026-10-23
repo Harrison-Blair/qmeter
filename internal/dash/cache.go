@@ -12,9 +12,11 @@ import (
 type cache map[string]layout.CachedProvider
 
 // update returns the cache after res, fetched at at, and leaves c unchanged.
-// A provider that fetched replaces its entry; a failure keeps the entry,
+// asked lists the providers passed to usage.Run; one of them with no error
+// fetched successfully. A provider that fetched replaces its entry, or drops
+// it when it brought no windows and no balances; a failure keeps the entry,
 // except a token expiry, which drops it.
-func (c cache) update(res usage.Result, at time.Time) cache {
+func (c cache) update(res usage.Result, asked []string, at time.Time) cache {
 	next := make(cache, len(c))
 	for id, entry := range c {
 		next[id] = entry
@@ -24,6 +26,11 @@ func (c cache) update(res usage.Result, at time.Time) cache {
 		failed[e.Provider] = true
 		if e.Kind == usage.KindTokenExpired {
 			delete(next, e.Provider)
+		}
+	}
+	for _, id := range asked {
+		if !failed[id] {
+			delete(next, id)
 		}
 	}
 	fresh := make(map[string]layout.CachedProvider)

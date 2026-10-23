@@ -42,9 +42,18 @@ the detail.
   `usage.Result`.
 - **Cache content and rules.** For each provider, the cache holds that
   provider's windows, its balances, and the time of the fetch that produced
-  them. A success replaces its entry at once. A failure whose kind is not
-  `KindTokenExpired` keeps the previous entry. A `KindTokenExpired` failure
-  drops the entry. The cache is in memory only and is lost on restart.
+  them. A success replaces its entry at once. A success that brings no windows
+  and no balances for that provider removes the entry instead, because there
+  is nothing to keep; a later failure of that provider then shows only its
+  error line. A failure whose kind is not `KindTokenExpired` keeps the previous
+  entry. A `KindTokenExpired` failure drops the entry. The cache is in memory
+  only and is lost on restart.
+- **The provider set.** `usage.Result` lists a provider only when it has a
+  window, a balance or an error, so the model passes the providers it asked
+  `usage.Run` for into the cache update. A provider in that set with no error
+  of its own counts as a success, even when it produced no windows and no
+  balances. Without this, an empty success leaves an old entry that a later
+  failure would show as current.
 - **Where the cache shows.** The provider card and the compact window rows use
   the cached windows and balances when that provider has a failure in
   `result.Errors`. The R1 resets list and the balances panel keep using
@@ -101,7 +110,7 @@ state, add a new file such as `screen-cached-93x39.txt`.
 | --- | --- | --- |
 | V1 | Kind mapping test, red then green | A test shows `Kind == KindTokenExpired` for a wrapped `provider.ErrTokenExpired`, and the zero kind for a timeout, a cancellation and a rate limit. It fails on the base (no `Kind`) and passes on the branch. |
 | V2 | One-shot output unchanged | A test proves the JSON of a token-expired error has the same keys and values as before the change, and `git diff dev -- internal/usage/render.go internal/spend internal/resets cmd` is empty. The existing render tests pass unchanged. |
-| V3 | Cache rules test, red then green | A success replaces the entry; a timeout keeps the previous entry; a token expiry drops it; a first failure with no entry yields no cached line; the entry keeps the fetch time of the fetch that made it. |
+| V3 | Cache rules test, red then green | A success replaces the entry; a success that brings no windows and no balances removes it, so a later failure shows only its error line and no cached line; a timeout keeps the previous entry; a token expiry drops it; a first failure with no entry yields no cached line; the entry keeps the fetch time of the fetch that made it. |
 | V4 | Full-layout text | At 140x45 with one provider failing and a cache entry, the card keeps that provider's windows and shows exactly `◌ cached · fetched HH:MM:SS · <reason>` in plain text (ANSI stripped). The R1 resets panel does not list that provider's windows, and the balances panel does not list its balances. |
 | V5 | Compact text and fit | In the compact layout the cached windows render in the provider's slot with the same cached line, and the too-small frame reports a need that fits the cached rows. |
 | V6 | No colour needed | With the Ascii profile the cached line and an ordinary error line differ by text alone (`◌ cached` against `error: `), and the cached card still draws its bars. State it in the evidence with the stripped frame. |

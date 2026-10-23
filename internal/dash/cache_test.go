@@ -16,6 +16,9 @@ var (
 	thirdFetch  = time.Date(2026, 9, 16, 14, 24, 9, 0, time.Local)
 )
 
+// asked is the provider set the model passed to usage.Run.
+var asked = []string{"codex"}
+
 func codexSuccess(percent float64) usage.Result {
 	return usage.Result{
 		Windows:  []provider.Window{{Provider: "codex", Name: "weekly", Plan: "prolite", RemainingPercent: percent}},
@@ -28,7 +31,7 @@ func codexFailure(kind usage.ErrorKind) usage.Result {
 }
 
 func TestCacheSuccessReplacesTheEntry(t *testing.T) {
-	c := cache{}.update(codexSuccess(40), firstFetch).update(codexSuccess(30), secondFetch)
+	c := cache{}.update(codexSuccess(40), asked, firstFetch).update(codexSuccess(30), asked, secondFetch)
 
 	want := layout.CachedProvider{
 		Windows:   codexSuccess(30).Windows,
@@ -40,8 +43,19 @@ func TestCacheSuccessReplacesTheEntry(t *testing.T) {
 	}
 }
 
+func TestCacheEmptySuccessRemovesTheEntry(t *testing.T) {
+	c := cache{}.update(codexSuccess(40), asked, firstFetch).update(usage.Result{}, asked, secondFetch)
+
+	if got, ok := c["codex"]; ok {
+		t.Fatalf("entry = %#v, want none after a success with no windows and no balances", got)
+	}
+	if got, ok := c.update(codexFailure(""), asked, thirdFetch)["codex"]; ok {
+		t.Fatalf("entry = %#v, want none for a failure after an empty success", got)
+	}
+}
+
 func TestCacheOrdinaryFailureKeepsThePreviousEntryAndItsFetchTime(t *testing.T) {
-	c := cache{}.update(codexSuccess(40), firstFetch).update(codexFailure(""), secondFetch).update(codexFailure(""), thirdFetch)
+	c := cache{}.update(codexSuccess(40), asked, firstFetch).update(codexFailure(""), asked, secondFetch).update(codexFailure(""), asked, thirdFetch)
 
 	want := layout.CachedProvider{
 		Windows:   codexSuccess(40).Windows,
@@ -54,7 +68,7 @@ func TestCacheOrdinaryFailureKeepsThePreviousEntryAndItsFetchTime(t *testing.T) 
 }
 
 func TestCacheTokenExpiryDropsTheEntry(t *testing.T) {
-	c := cache{}.update(codexSuccess(40), firstFetch).update(codexFailure(usage.KindTokenExpired), secondFetch)
+	c := cache{}.update(codexSuccess(40), asked, firstFetch).update(codexFailure(usage.KindTokenExpired), asked, secondFetch)
 
 	if got, ok := c["codex"]; ok {
 		t.Fatalf("entry = %#v, want none after a token expiry", got)
@@ -62,7 +76,7 @@ func TestCacheTokenExpiryDropsTheEntry(t *testing.T) {
 }
 
 func TestCacheFirstFailureHasNoEntry(t *testing.T) {
-	c := cache{}.update(codexFailure(""), firstFetch)
+	c := cache{}.update(codexFailure(""), asked, firstFetch)
 
 	if got, ok := c["codex"]; ok {
 		t.Fatalf("entry = %#v, want none before any success", got)
@@ -70,8 +84,8 @@ func TestCacheFirstFailureHasNoEntry(t *testing.T) {
 }
 
 func TestCacheUpdateLeavesTheEarlierCacheUnchanged(t *testing.T) {
-	before := cache{}.update(codexSuccess(40), firstFetch)
-	_ = before.update(codexFailure(usage.KindTokenExpired), secondFetch)
+	before := cache{}.update(codexSuccess(40), asked, firstFetch)
+	_ = before.update(codexFailure(usage.KindTokenExpired), asked, secondFetch)
 
 	if _, ok := before["codex"]; !ok {
 		t.Fatal("update changed the cache it was called on")

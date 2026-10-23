@@ -142,6 +142,15 @@ func (m Model) fetch() tea.Cmd {
 	}
 }
 
+// providerIDs lists the IDs of the providers each fetch asks usage.Run for.
+func (m Model) providerIDs() []string {
+	ids := make([]string, len(m.providers))
+	for i, p := range m.providers {
+		ids[i] = p.ID()
+	}
+	return ids
+}
+
 func (m *Model) scheduleRefresh() tea.Cmd {
 	m.cancelRefreshTimer()
 	m.refreshGeneration++
@@ -170,7 +179,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resultMsg:
 		m.res, m.haveRes, m.loading = msg.res, true, false
 		m.updatedAt = m.now()
-		m.cache = m.cache.update(msg.res, m.updatedAt)
+		m.cache = m.cache.update(msg.res, m.providerIDs(), m.updatedAt)
 		m.spin = 0
 		return m, m.scheduleRefresh()
 	case refreshMsg:

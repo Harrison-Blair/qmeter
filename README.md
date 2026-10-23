@@ -87,8 +87,9 @@ The dashboard keeps the last good response of each provider in memory until it
 exits. When a later fetch of that provider fails, its card and compact rows keep
 the old bars, dimmed, and show `◌ cached · fetched HH:MM:SS · <reason>` in
 place of the error line. The resets list and the balances panel show fresh data
-only. An expired token clears the kept response, so that provider shows only
-its error line.
+only. An expired token, or a successful fetch that returns no windows and no
+balances, clears the kept response, so a later failure shows only its error
+line.
 
 When stdout is not a terminal, bare `qmeter` prints the same text as
 `qmeter usage`. `qmeter --json` prints the usage JSON. A terminal that supports
