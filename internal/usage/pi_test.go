@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/provider/claude"
 	"github.com/Harrison-Blair/qmeter/internal/provider/codex"
@@ -60,8 +61,8 @@ func TestPiFallbackProducesOneSubscriptionPerProvider(t *testing.T) {
 			}))
 			defer server.Close()
 			providers := []provider.Provider{
-				claude.New(claude.WithCredentialPath(nativeClaude), claude.WithPiCredentialPath(pi), claude.WithKeychainRunner(nil), claude.WithBaseURL(server.URL)),
-				codex.New(codex.WithCredentialPath(nativeCodex), codex.WithPiCredentialPath(pi), codex.WithBaseURL(server.URL)),
+				claude.New(claude.WithCredentialPath(nativeClaude), claude.WithPiCredentialPath(pi), claude.WithKeychainRunner(nil), claude.WithBaseURL(server.URL), claude.WithRefreshRunner(subprocess.NewFake())),
+				codex.New(codex.WithCredentialPath(nativeCodex), codex.WithPiCredentialPath(pi), codex.WithBaseURL(server.URL), codex.WithRefreshRunner(subprocess.NewFake())),
 				opencodego.New(opencodego.WithCredentialPath(nativeGo), opencodego.WithPiCredentialPath(pi), opencodego.WithBaseURL(server.URL)),
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

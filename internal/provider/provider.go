@@ -144,10 +144,18 @@ func (e ErrNotLoggedIn) Is(target error) bool {
 // chain.
 type ErrTokenExpired struct {
 	Tool string
+
+	// RefreshFailure is the reason an automatic refresh through the vendor
+	// CLI failed. Empty when no refresh ran or the refresh succeeded.
+	RefreshFailure string
 }
 
 func (e ErrTokenExpired) Error() string {
-	return fmt.Sprintf("token expired, open %s to refresh", e.Tool)
+	msg := fmt.Sprintf("token expired, open %s to refresh", e.Tool)
+	if e.RefreshFailure != "" {
+		msg += fmt.Sprintf(" (auto-refresh failed: %s)", e.RefreshFailure)
+	}
+	return msg
 }
 
 // Is compares by type only and ignores the fields entirely, in both

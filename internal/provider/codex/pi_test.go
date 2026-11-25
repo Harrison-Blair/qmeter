@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -62,7 +63,7 @@ func TestPiFallback(t *testing.T) {
 					w.Write([]byte(`{"rate_limit":{"primary_window":{"used_percent":25}}}`))
 				}))
 				defer srv.Close()
-				p := New(WithCredentialPath(path), WithBaseURL(srv.URL))
+				p := New(WithCredentialPath(path), WithBaseURL(srv.URL), WithRefreshRunner(subprocess.NewFake()))
 				if ok, reason := p.Detect(context.Background()); !ok {
 					t.Fatalf("Detect false: %s", reason)
 				}
@@ -140,7 +141,7 @@ func TestPiRetryFailureHintAndMissingPreservesNative(t *testing.T) {
 			calls := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(403) }))
 			defer srv.Close()
-			p := New(WithCredentialPath(fixture("auth_chatgpt.json")), WithBaseURL(srv.URL))
+			p := New(WithCredentialPath(fixture("auth_chatgpt.json")), WithBaseURL(srv.URL), WithRefreshRunner(subprocess.NewFake()))
 			_, err := p.Fetch(context.Background())
 			var expired provider.ErrTokenExpired
 			wantTool, wantCalls := "codex", 1

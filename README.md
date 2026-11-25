@@ -49,8 +49,16 @@ wins. Claude credentials from Pi carry no plan name, so that field remains empty
 Explicit `QMETER_CLAUDE_TOKEN`, `QMETER_CODEX_TOKEN` (with optional
 `QMETER_CODEX_ACCOUNT_ID`), and `QMETER_OPENCODE_GO_KEY` overrides remain
 authoritative, including when a request fails. qmeter reloads credentials on
-refresh and never writes or refreshes OAuth tokens itself; expired Pi tokens
-produce an `open pi to refresh` hint. Pi discovery covers this auth store and
+refresh and never writes OAuth tokens or vendor credential files itself. When
+the token in the native Claude store has expired or the usage API rejects it,
+qmeter runs `claude auth status`; when the usage API rejects the token in the
+native Codex store, qmeter runs `codex doctor`. Each vendor CLI then refreshes
+its own store, and qmeter reads the store again and retries the request once,
+before it tries Pi. The command runs at most once per fetch, with a 30-second
+limit. If it fails, the hint names the reason, for example `token expired,
+open claude to refresh (auto-refresh failed: claude not found)`. Environment
+overrides and Pi credentials are never refreshed; expired Pi tokens produce an
+`open pi to refresh` hint. Pi discovery covers this auth store and
 its key references, rather than custom extensions or `models.json`. Ordinary
 Anthropic/OpenAI API keys and OpenCode Zen keys are not subscription credentials
 for the providers above. Cursor continues using its native credential sources.
