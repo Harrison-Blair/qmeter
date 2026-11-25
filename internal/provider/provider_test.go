@@ -21,6 +21,26 @@ func TestErrTokenExpired_Error_IncludesHint(t *testing.T) {
 	}
 }
 
+func TestErrTokenExpired_Error_AddsRefreshFailure(t *testing.T) {
+	err := provider.ErrTokenExpired{Tool: "claude", RefreshFailure: "claude not found"}
+
+	got := err.Error()
+	want := "token expired, open claude to refresh (auto-refresh failed: claude not found)"
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestErrTokenExpired_IsIgnoresRefreshFailure(t *testing.T) {
+	withFailure := provider.ErrTokenExpired{Tool: "claude", RefreshFailure: "claude not found"}
+	if !errors.Is(fmt.Errorf("usage request: %w", withFailure), provider.ErrTokenExpired{}) {
+		t.Error("errors.Is(wrapped error with RefreshFailure, ErrTokenExpired{}) = false, want true")
+	}
+	if !errors.Is(provider.ErrTokenExpired{Tool: "claude"}, withFailure) {
+		t.Error("errors.Is(ErrTokenExpired, target with RefreshFailure) = false, want true")
+	}
+}
+
 func TestErrNotLoggedIn_Error_IncludesHint(t *testing.T) {
 	err := provider.ErrNotLoggedIn{Tool: "codex"}
 

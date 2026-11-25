@@ -104,8 +104,7 @@ func homeDirFor(goos string) (string, error) {
 // resolveCredential runs the credential lookup order: the QMETER_CODEX_TOKEN
 // override first, then ~/.codex/auth.json, then compatible Pi OAuth.
 func (p *Provider) resolveCredential(ctx context.Context) (credential, error) {
-	cred, source, err := credstore.Resolve(ctx, tokenEnvVar, tool, p.loadStore, p.fromEnv)
-	cred.Source = source
+	cred, err := p.resolveNative(ctx)
 	if err == nil || os.Getenv(tokenEnvVar) != "" || ctx.Err() != nil {
 		return cred, err
 	}
@@ -114,6 +113,14 @@ func (p *Provider) resolveCredential(ctx context.Context) (credential, error) {
 		return cred, err
 	}
 	return pi, piErr
+}
+
+// resolveNative runs the lookup order without Pi: QMETER_CODEX_TOKEN, then
+// ~/.codex/auth.json.
+func (p *Provider) resolveNative(ctx context.Context) (credential, error) {
+	cred, source, err := credstore.Resolve(ctx, tokenEnvVar, tool, p.loadStore, p.fromEnv)
+	cred.Source = source
+	return cred, err
 }
 
 // loadPi reads subscription OAuth credentials without refreshing them.

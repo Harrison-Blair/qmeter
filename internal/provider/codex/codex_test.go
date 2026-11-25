@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -499,6 +500,7 @@ func testProvider(t *testing.T, srv *httptest.Server, credentialPath string) *Pr
 		WithHTTPClient(srv.Client()),
 		WithCredentialPath(credentialPath),
 		WithClock(func() time.Time { return testNow }),
+		WithRefreshRunner(subprocess.NewFake()),
 	)
 }
 

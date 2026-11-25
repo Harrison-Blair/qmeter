@@ -194,6 +194,11 @@ func TestRun_MessageUsesExtractedTypedErrorNotWrapper(t *testing.T) {
 			want: "token expired, open claude to refresh",
 		},
 		{
+			name: "token expired after a failed auto-refresh",
+			err:  fmt.Errorf("claude: usage request: %w", provider.ErrTokenExpired{Tool: "claude", RefreshFailure: "claude not found"}),
+			want: "token expired, open claude to refresh (auto-refresh failed: claude not found)",
+		},
+		{
 			name: "not logged in wrapped",
 			err:  fmt.Errorf("codex: credentials: %w", provider.ErrNotLoggedIn{Tool: "codex"}),
 			want: "not logged in, run codex to log in",

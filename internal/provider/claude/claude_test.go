@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -33,6 +34,9 @@ func newProvider(t *testing.T, opts ...Option) *Provider {
 	base := []Option{
 		WithCredentialPath(fixture("credentials_valid.json")),
 		WithClock(func() time.Time { return testNow }),
+		// A fake whose every run fails as unscripted: no test refreshes
+		// unless it injects its own runner.
+		WithRefreshRunner(subprocess.NewFake()),
 	}
 	return New(append(base, opts...)...)
 }
@@ -526,7 +530,11 @@ func TestFetch_429RendersAsErrRateLimited(t *testing.T) {
 
 func TestFetch_401ReturnsTokenExpiredNamingClaude(t *testing.T) {
 	srv, _ := serveJSON(t, http.StatusUnauthorized, nil, []byte(`{"error":{"type":"authentication_error"}}`))
-	p := newProvider(t, pointAt(srv)...)
+	// The refresh succeeds but changes nothing, so the retry is rejected too
+	// and the hint carries no refresh failure.
+	refreshed := subprocess.NewFake()
+	refreshed.Script(nil, nil, "claude", "auth", "status")
+	p := newProvider(t, append(pointAt(srv), WithRefreshRunner(refreshed))...)
 
 	_, err := p.Fetch(testContext(t))
 	var expired provider.ErrTokenExpired

@@ -3,7 +3,9 @@
 // Credentials come from the QMETER_CODEX_TOKEN override or, failing that,
 // from ~/.codex/auth.json, with compatible Pi OAuth as a fallback.
 // Credential stores are read-only: qmeter never writes to a
-// vendor store and never refreshes a token.
+// vendor store. When the usage API rejects the token in ~/.codex/auth.json,
+// Fetch runs `codex doctor` so that Codex refreshes its own store, then reads
+// the store again.
 package codex
 
 import (
@@ -18,9 +20,11 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/clirefresh"
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/lib/httpx"
 	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -48,6 +52,9 @@ type Provider struct {
 	baseURL          string
 	client           *http.Client
 	now              func() time.Time
+
+	// refresher runs `codex doctor` (see Fetch).
+	refresher subprocess.Runner
 }
 
 // Option configures a Provider.
@@ -81,12 +88,19 @@ func WithClock(now func() time.Time) Option {
 	return func(p *Provider) { p.now = now }
 }
 
+// WithRefreshRunner runs the token refresh command through r instead of a
+// real subprocess. Tests pass a fake.
+func WithRefreshRunner(r subprocess.Runner) Option {
+	return func(p *Provider) { p.refresher = r }
+}
+
 // New builds a Codex provider.
 func New(opts ...Option) *Provider {
 	p := &Provider{
 		baseURL:          defaultBaseURL,
 		piCredentialPath: piauth.DefaultPath(),
 		now:              time.Now,
+		refresher:        subprocess.Real{},
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -148,8 +162,23 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 	}
 
 	usage, err := p.fetchCredential(ctx, cred)
-	var expired provider.ErrTokenExpired
-	if cred.Source == credstore.SourceStore && errors.As(err, &expired) && ctx.Err() == nil {
+	rejected := func() bool {
+		return cred.Source == credstore.SourceStore && errors.Is(err, provider.ErrTokenExpired{}) && ctx.Err() == nil
+	}
+	// A 401 for a store token starts `codex doctor`, which refreshes
+	// ~/.codex/auth.json when the access token has expired. The store is
+	// then read again and the request runs one more time.
+	var refreshErr error
+	if rejected() {
+		refreshErr = clirefresh.Run(ctx, p.refresher, tool, "doctor")
+	}
+	if refreshErr == nil && rejected() {
+		if fresh, freshErr := p.resolveNative(ctx); freshErr == nil {
+			cred = fresh
+			usage, err = p.fetchCredential(ctx, cred)
+		}
+	}
+	if rejected() {
 		pi, piErr := p.loadPi()
 		if piErr == nil {
 			return p.fetchCredential(ctx, pi)
@@ -158,7 +187,10 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 			return provider.Usage{}, piErr
 		}
 	}
-	return usage, err
+	if err != nil {
+		return provider.Usage{}, clirefresh.Annotate(ctx, err, refreshErr, tool)
+	}
+	return usage, nil
 }
 
 func (p *Provider) fetchCredential(ctx context.Context, cred credential) (provider.Usage, error) {

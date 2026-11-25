@@ -3,8 +3,10 @@
 // own credential store preferred over Pi), queries the OAuth usage endpoint, and normalizes the
 // answer into provider.Usage.
 //
-// The package never writes to Claude's credential store and never refreshes a
-// token.
+// The package never writes to Claude's credential store. When the store's
+// token has expired or the usage API rejects it, Fetch runs `claude auth
+// status` so that Claude Code refreshes its own store, then reads the store
+// again.
 package claude
 
 import (
@@ -18,9 +20,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Harrison-Blair/qmeter/internal/lib/clirefresh"
 	"github.com/Harrison-Blair/qmeter/internal/lib/credstore"
 	"github.com/Harrison-Blair/qmeter/internal/lib/httpx"
 	"github.com/Harrison-Blair/qmeter/internal/lib/piauth"
+	"github.com/Harrison-Blair/qmeter/internal/lib/subprocess"
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 )
 
@@ -84,6 +88,9 @@ type Provider struct {
 	// keychain is the macOS Keychain seam (see credentials.go); noKeychain
 	// on this unit.
 	keychain keychainLoader
+
+	// refresher runs `claude auth status` (see refresh.go).
+	refresher subprocess.Runner
 }
 
 // Option configures a Provider.
@@ -117,12 +124,19 @@ func WithClock(now func() time.Time) Option {
 	return func(p *Provider) { p.now = now }
 }
 
+// WithRefreshRunner runs the token refresh command through r instead of a
+// real subprocess. Tests pass a fake.
+func WithRefreshRunner(r subprocess.Runner) Option {
+	return func(p *Provider) { p.refresher = r }
+}
+
 // New returns a Claude provider configured by opts.
 func New(opts ...Option) *Provider {
 	p := &Provider{
-		baseURL:  DefaultBaseURL,
-		now:      time.Now,
-		keychain: noKeychain,
+		baseURL:   DefaultBaseURL,
+		now:       time.Now,
+		keychain:  noKeychain,
+		refresher: subprocess.Real{},
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -173,45 +187,60 @@ func (p *Provider) Detect(ctx context.Context) (bool, string) {
 // A 200 that yields no window at all is an error, not an empty success: the
 // user asked for usage and there is none to show.
 //
-// An expired store credential is reported without any network I/O.
+// An expired store credential is never sent. Instead, an expired store
+// credential or a 401 for one starts `claude auth status`, which refreshes
+// Claude Code's own store; the store is then read again and the request runs
+// one more time. At most one refresh runs per Fetch. Pi is the fallback only
+// when the refresh fails or the retry still fails.
 func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
+	refreshed := false
+	var refreshErr error
+	refresh := func() bool {
+		refreshed = true
+		refreshErr = clirefresh.Run(ctx, p.refresher, toolName, "auth", "status")
+		return refreshErr == nil
+	}
+
 	// Credential errors pass through unwrapped: credstore has already worded
 	// them for display ("not logged in, run claude to log in", or "credential
 	// store: ..."), and a second prefix would double up in the failure line.
-	cred, source, err := p.resolve(ctx)
+	// Only the store loader returns ErrTokenExpired: the env override never
+	// does, so an env token is never refreshed.
+	cred, source, err := p.resolveNative(ctx)
+	if errors.Is(err, provider.ErrTokenExpired{}) && ctx.Err() == nil && refresh() {
+		cred, source, err = p.resolveNative(ctx)
+	}
+	cred, source, err = p.orPi(ctx, cred, source, err)
 	if err != nil {
-		return provider.Usage{}, err
+		return provider.Usage{}, clirefresh.Annotate(ctx, err, refreshErr, toolName)
 	}
 
 	// Decoding the top level as raw messages keeps the unknown-key handling
 	// in one place: known window keys are decoded below, everything else is
 	// offered to the scoped-limit parser and skipped when it does not fit.
 	var body map[string]json.RawMessage
-	opts := httpx.Options{
-		URL:  p.usageURL(),
-		Tool: credentialTool(source),
-		Headers: map[string]string{
-			"Authorization": "Bearer " + cred.AccessToken,
-			betaHeader:      betaVersion,
-			"User-Agent":    userAgent,
-		},
-		Client: p.client,
+	err = p.get(ctx, cred, source, &body)
+	rejected := func() bool {
+		return err != nil && ctx.Err() == nil && source == credstore.SourceStore && errors.Is(err, provider.ErrTokenExpired{})
 	}
-	err = httpx.Get(ctx, opts, &body)
-	if err != nil && ctx.Err() == nil && source == credstore.SourceStore && errors.Is(err, provider.ErrTokenExpired{}) {
+	if rejected() && !refreshed && refresh() {
+		if fresh, freshSource, freshErr := p.resolveNative(ctx); freshErr == nil {
+			cred, source = fresh, freshSource
+			err = p.get(ctx, cred, source, &body)
+		}
+	}
+	if rejected() {
 		piCred, piErr := p.loadPi()
 		if !piauth.IsMissing(piErr) {
 			if piErr != nil {
 				return provider.Usage{}, piErr
 			}
 			cred = piCred
-			opts.Tool = "pi"
-			opts.Headers["Authorization"] = "Bearer " + cred.AccessToken
-			err = httpx.Get(ctx, opts, &body)
+			err = p.get(ctx, cred, credstore.SourcePi, &body)
 		}
 	}
 	if err != nil {
-		return provider.Usage{}, fmt.Errorf("usage request: %w", err)
+		return provider.Usage{}, clirefresh.Annotate(ctx, fmt.Errorf("usage request: %w", err), refreshErr, toolName)
 	}
 	windows := windowsFrom(body, cred.Plan)
 	if len(windows) == 0 {
@@ -221,6 +250,20 @@ func (p *Provider) Fetch(ctx context.Context) (provider.Usage, error) {
 		return provider.Usage{}, errNoKnownWindows
 	}
 	return provider.Usage{Windows: windows, Balances: balancesFrom(body)}, nil
+}
+
+// get sends the usage request with cred and decodes the answer into body.
+func (p *Provider) get(ctx context.Context, cred credential, source credstore.Source, body *map[string]json.RawMessage) error {
+	return httpx.Get(ctx, httpx.Options{
+		URL:  p.usageURL(),
+		Tool: credentialTool(source),
+		Headers: map[string]string{
+			"Authorization": "Bearer " + cred.AccessToken,
+			betaHeader:      betaVersion,
+			"User-Agent":    userAgent,
+		},
+		Client: p.client,
+	}, body)
 }
 
 func credentialTool(source credstore.Source) string {

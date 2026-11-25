@@ -49,8 +49,8 @@ type credential struct {
 type storeFile struct {
 	ClaudeAiOauth struct {
 		AccessToken string `json:"accessToken"`
-		// RefreshToken is read only to document the store's shape: qmeter is
-		// permanently read-only and never refreshes.
+		// RefreshToken is read only to document the store's shape: qmeter
+		// never writes this file. A refresh is left to `claude auth status`.
 		RefreshToken     string `json:"refreshToken"`
 		ExpiresAt        int64  `json:"expiresAt"` // epoch milliseconds
 		SubscriptionType string `json:"subscriptionType"`
@@ -237,7 +237,19 @@ func (p *Provider) credentialPath() (string, error) {
 // the local store, then Pi if the native lookup fails. The Source tells the
 // caller which step won; only the native store carries a plan name.
 func (p *Provider) resolve(ctx context.Context) (credential, credstore.Source, error) {
-	cred, source, err := credstore.Resolve(ctx, envVar, toolName, p.loadStore, fromEnv)
+	cred, source, err := p.resolveNative(ctx)
+	return p.orPi(ctx, cred, source, err)
+}
+
+// resolveNative runs the lookup order without Pi: QMETER_CLAUDE_TOKEN, then
+// the local store.
+func (p *Provider) resolveNative(ctx context.Context) (credential, credstore.Source, error) {
+	return credstore.Resolve(ctx, envVar, toolName, p.loadStore, fromEnv)
+}
+
+// orPi returns the result of resolveNative, or the Pi credential when the
+// native lookup failed and no env override is set.
+func (p *Provider) orPi(ctx context.Context, cred credential, source credstore.Source, err error) (credential, credstore.Source, error) {
 	if err == nil || os.Getenv(envVar) != "" || ctx.Err() != nil {
 		return cred, source, err
 	}
