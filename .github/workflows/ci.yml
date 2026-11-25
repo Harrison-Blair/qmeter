@@ -2,12 +2,13 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main]
     paths:
       - "**.go"
       - go.mod
       - go.sum
       - ".github/workflows/**"
+      - ".github/scripts/**"
 
 permissions:
   contents: read

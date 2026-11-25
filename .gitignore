@@ -13,9 +13,6 @@
 !LICENSE
 !docs/screenshots/*.png
 
-# Hive local state
-/.hive/
-
 # Repo config
 !.gitignore
 !.github/**
