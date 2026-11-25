@@ -38,6 +38,16 @@ func CardHeight(width int, windows []provider.Window, balances []Balance, messag
 // ProviderCard draws one provider card. It returns false when width is below
 // 30 cells. A requested height above the natural height adds blank body rows.
 func ProviderCard(providerID, plan string, windows []provider.Window, balances []Balance, messages []CardMessage, width, height int, now time.Time, r *lipgloss.Renderer, theme Theme) ([]string, bool) {
+	return providerCard(providerID, plan, windows, balances, messages, width, height, now, false, r, theme)
+}
+
+// CachedProviderCard draws a card like ProviderCard for windows kept from an
+// earlier fetch: the bars, percentages and countdowns render faint.
+func CachedProviderCard(providerID, plan string, windows []provider.Window, balances []Balance, messages []CardMessage, width, height int, now time.Time, r *lipgloss.Renderer, theme Theme) ([]string, bool) {
+	return providerCard(providerID, plan, windows, balances, messages, width, height, now, true, r, theme)
+}
+
+func providerCard(providerID, plan string, windows []provider.Window, balances []Balance, messages []CardMessage, width, height int, now time.Time, dim bool, r *lipgloss.Renderer, theme Theme) ([]string, bool) {
 	if width < 30 {
 		return nil, false
 	}
@@ -55,7 +65,7 @@ func ProviderCard(providerID, plan string, windows []provider.Window, balances [
 		if i > 0 {
 			body = append(body, strings.Repeat(" ", innerWidth))
 		}
-		body = append(body, Bar(window, now, innerWidth, r)...)
+		body = append(body, bar(window, now, innerWidth, dim, r)...)
 	}
 	for _, balance := range balances {
 		parts := []styledPart{{balance.Name, r.NewStyle()}}

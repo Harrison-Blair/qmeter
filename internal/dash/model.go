@@ -42,6 +42,10 @@ var scheduleTick = func(parent context.Context, d time.Duration, fn func(time.Ti
 	return cmd, cancel
 }
 
+// clockTick is the seam of the one-second clock. Tests replace it to check
+// the interval and to drive a tick without waiting.
+var clockTick = tea.Tick
+
 const (
 	spinFrames   = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 	spinInterval = 80 * time.Millisecond
@@ -74,6 +78,7 @@ type Model struct {
 	width     int
 	height    int
 	res       usage.Result
+	cache     cache
 	haveRes   bool
 	updatedAt time.Time
 	loading   bool
@@ -81,6 +86,8 @@ type Model struct {
 }
 
 type spinMsg struct{}
+
+type clockMsg struct{}
 
 type resultMsg struct {
 	res usage.Result
@@ -120,9 +127,9 @@ func New(o Options) Model {
 	return m
 }
 
-// Init starts the first fetch.
+// Init starts the first fetch and the clock.
 func (m Model) Init() tea.Cmd {
-	return m.startFetch()
+	return tea.Batch(m.fetch(), spinTick(), clock())
 }
 
 // startFetch is the fetch together with the spinner that turns while it runs.
@@ -134,11 +141,25 @@ func spinTick() tea.Cmd {
 	return tea.Tick(spinInterval, func(time.Time) tea.Msg { return spinMsg{} })
 }
 
+// clock redraws the frame once each second so the header's time stays current.
+func clock() tea.Cmd {
+	return clockTick(time.Second, func(time.Time) tea.Msg { return clockMsg{} })
+}
+
 func (m Model) fetch() tea.Cmd {
 	ctx, providers := m.ctx, m.providers
 	return func() tea.Msg {
 		return resultMsg{res: usage.Run(ctx, providers, "")}
 	}
+}
+
+// providerIDs lists the IDs of the providers each fetch asks usage.Run for.
+func (m Model) providerIDs() []string {
+	ids := make([]string, len(m.providers))
+	for i, p := range m.providers {
+		ids[i] = p.ID()
+	}
+	return ids
 }
 
 func (m *Model) scheduleRefresh() tea.Cmd {
@@ -169,6 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resultMsg:
 		m.res, m.haveRes, m.loading = msg.res, true, false
 		m.updatedAt = m.now()
+		m.cache = m.cache.update(msg.res, m.providerIDs(), m.updatedAt)
 		m.spin = 0
 		return m, m.scheduleRefresh()
 	case refreshMsg:
@@ -178,6 +200,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelRefreshTimer()
 		m.loading = true
 		return m, m.startFetch()
+	case clockMsg:
+		return m, clock()
 	case spinMsg:
 		if !m.loading {
 			return m, nil
@@ -232,5 +256,6 @@ func (m Model) View() string {
 		Loading:      m.loading,
 		SpinnerFrame: m.spin,
 		Renderer:     m.renderer,
+		Cached:       m.cache,
 	}), "\n")
 }

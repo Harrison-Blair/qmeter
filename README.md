@@ -59,8 +59,10 @@ for the providers above. Cursor continues using its native credential sources.
 
 Run `qmeter` in a terminal to open the full-screen dashboard. The screen fills
 the terminal and does not scroll. It has a one-line header with provider and
-window counts and the fetch time, provider cards in a two-column grid, the R1
-resets list beside the balances panel, and a one-line key bar. Each card has
+window counts and `fetched HH:MM:SS · now HH:MM:SS` in local time, provider
+cards in a two-column grid, the R1 resets list beside the balances panel, and a
+one-line key bar. The clock redraws once each second. A narrow header drops the
+`now` part first, then both times. Each card has
 one thick A5 bar for every usage window. The bar shows the remaining percentage
 in its band colour, with the unused track dimmed. Its title shows the window,
 percentage and reset countdown. Rate-limited windows use the rate-limit colour
@@ -82,6 +84,14 @@ drops the panels if they do not fit. It uses the compact layout when the cards
 alone do not fit. The `r` key refreshes all providers. The `q` key quits.
 `--filter claude,codex` limits the dashboard to named providers; names can also
 be repeated as separate flags.
+
+The dashboard keeps the last good response of each provider in memory until it
+exits. When a later fetch of that provider fails, its card and compact rows keep
+the old bars, dimmed, and show `◌ cached · fetched HH:MM:SS · <reason>` in
+place of the error line. The resets list and the balances panel show fresh data
+only. An expired token, or a successful fetch that returns no windows and no
+balances, clears the kept response, so a later failure shows only its error
+line.
 
 When stdout is not a terminal, bare `qmeter` prints the same text as
 `qmeter usage`. `qmeter --json` prints the usage JSON. A terminal that supports

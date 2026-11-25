@@ -125,13 +125,36 @@ func TestBarA5ClipsWideNamesAndUsesBandColour(t *testing.T) {
 }
 
 func TestCompactBarUsesNameColumnAndMinimumBar(t *testing.T) {
-	got := CompactBar(provider.Window{Name: "fable weekly", RemainingPercent: 96, ResetsAt: barNow.Add(6*24*time.Hour + 8*time.Hour)}, barNow, 40, 14, plainRenderer())
+	got := CompactBar(provider.Window{Name: "fable weekly", RemainingPercent: 96, ResetsAt: barNow.Add(6*24*time.Hour + 8*time.Hour)}, barNow, 40, 14, false, plainRenderer())
 	want := "fable weekly   ━━━━━━━━━━━━━─ 96.0% 6d8h"
 	if got != want {
 		t.Fatalf("CompactBar = %q, want %q", got, want)
 	}
-	short := CompactBar(provider.Window{Name: "x", RemainingPercent: 0}, barNow, 20, 3, plainRenderer())
+	short := CompactBar(provider.Window{Name: "x", RemainingPercent: 0}, barNow, 20, 3, false, plainRenderer())
 	if !strings.Contains(short, "x   ───────── 0.0% -") {
 		t.Fatalf("compact bar below width floor = %q", short)
+	}
+}
+
+func TestCompactBarDimRendersBarPercentAndCountdownFaint(t *testing.T) {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.ANSI)
+	w := provider.Window{Name: "5h", RemainingPercent: 100, ResetsAt: barNow.Add(16 * time.Minute)}
+	plain := CompactBar(w, barNow, 30, 2, false, r)
+	dim := CompactBar(w, barNow, 30, 2, true, r)
+
+	if ansi.Strip(dim) != ansi.Strip(plain) {
+		t.Fatalf("dim text = %q, want the plain text %q", ansi.Strip(dim), ansi.Strip(plain))
+	}
+	faintPercent := r.NewStyle().Foreground(lipgloss.Color("10")).Faint(true).Render("100.0%")
+	faintCountdown := r.NewStyle().Foreground(Neutral).Faint(true).Render("16m")
+	faintBar := r.NewStyle().Foreground(lipgloss.Color("10")).Faint(true).Render("━━━━━━━━━━━━━━━━")
+	for _, want := range []string{faintPercent, faintCountdown, faintBar} {
+		if !strings.Contains(dim, want) {
+			t.Errorf("dim compact bar lacks faint %q: %q", ansi.Strip(want), dim)
+		}
+		if strings.Contains(plain, want) {
+			t.Errorf("plain compact bar has faint %q: %q", ansi.Strip(want), plain)
+		}
 	}
 }

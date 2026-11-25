@@ -8,6 +8,7 @@ import (
 
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 )
@@ -71,5 +72,37 @@ func TestProviderCardMinimumWidthAndWindowSeparation(t *testing.T) {
 	}
 	if strings.Trim(lines[3], " │") != "" {
 		t.Fatalf("two window blocks lack one blank row: %#v", lines)
+	}
+}
+
+func TestCachedProviderCardDimsBarsAndKeepsTheText(t *testing.T) {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.ANSI)
+	windows := []provider.Window{{Provider: "claude", Name: "5h", RemainingPercent: 100, ResetsAt: barNow.Add(16 * time.Minute)}}
+	messages := []CardMessage{{Text: "◌ cached · fetched 14:22:07 · offline", Error: true}}
+	fresh, ok := ProviderCard("claude", "max", windows, nil, messages, 50, 0, barNow, r, Default())
+	if !ok {
+		t.Fatal("fresh card did not draw")
+	}
+	cached, ok := CachedProviderCard("claude", "max", windows, nil, messages, 50, 0, barNow, r, Default())
+	if !ok {
+		t.Fatal("cached card did not draw")
+	}
+
+	if got, want := ansi.Strip(strings.Join(cached, "\n")), ansi.Strip(strings.Join(fresh, "\n")); got != want {
+		t.Fatalf("cached card text differs from the fresh card:\n%s\nwant\n%s", got, want)
+	}
+	faintPercent := r.NewStyle().Foreground(lipgloss.Color("10")).Faint(true).Render("100.0%")
+	faintBar := r.NewStyle().Foreground(lipgloss.Color("10")).Faint(true).Render(strings.Repeat("━", 46))
+	errorLine := r.NewStyle().Foreground(lipgloss.Color("9")).Render("◌ cached · fetched 14:22:07 · offline")
+	for _, want := range []string{faintPercent, faintBar, errorLine} {
+		if !strings.Contains(strings.Join(cached, "\n"), want) {
+			t.Errorf("cached card lacks styled %q", ansi.Strip(want))
+		}
+	}
+	for _, unwanted := range []string{faintPercent, faintBar} {
+		if strings.Contains(strings.Join(fresh, "\n"), unwanted) {
+			t.Errorf("fresh card has faint %q", ansi.Strip(unwanted))
+		}
 	}
 }

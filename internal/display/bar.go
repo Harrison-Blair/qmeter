@@ -20,12 +20,17 @@ type styledPart struct {
 // Bar draws the two A5 lines for one usage window. Both lines have exactly
 // width visible cells.
 func Bar(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) []string {
+	return bar(w, now, width, false, r)
+}
+
+// bar is Bar with dim, which renders the percentage and the bar faint.
+func bar(w provider.Window, now time.Time, width int, dim bool, r *lipgloss.Renderer) []string {
 	if width < 0 {
 		width = 0
 	}
 	percent := fmt.Sprintf("%.1f%%", w.RemainingPercent)
 	band := Band(w.RemainingPercent, w.RateLimited)
-	percentStyle := r.NewStyle().Foreground(band).Bold(true)
+	percentStyle := bandStyle(band, dim, r)
 	dimStyle := r.NewStyle().Foreground(Neutral).Faint(true)
 	reset := "-"
 	resetText := " · resets -"
@@ -66,18 +71,19 @@ func Bar(w provider.Window, now time.Time, width int, r *lipgloss.Renderer) []st
 	left := "▸ " + name
 	if width <= runewidth.StringWidth(left) {
 		line := fitText(left, width)
-		return []string{line + strings.Repeat(" ", width-runewidth.StringWidth(line)), barLine(w, width, r)}
+		return []string{line + strings.Repeat(" ", width-runewidth.StringWidth(line)), renderBar(w, width, dim, r)}
 	}
 	rightText := renderParts(right, rightWidth)
 	line := left + " " + rightText
 	lineWidth := runewidth.StringWidth(left) + 1 + rightWidth
 	line += strings.Repeat(" ", max(0, width-lineWidth))
-	return []string{line, barLine(w, width, r)}
+	return []string{line, renderBar(w, width, dim, r)}
 }
 
 // CompactBar draws the one-line small-terminal form. nameWidth fixes the name
 // column; the bar uses the remaining width, with a minimum of eight cells.
-func CompactBar(w provider.Window, now time.Time, width, nameWidth int, r *lipgloss.Renderer) string {
+// dim renders the bar, the percentage and the countdown faint.
+func CompactBar(w provider.Window, now time.Time, width, nameWidth int, dim bool, r *lipgloss.Renderer) string {
 	width = max(0, width)
 	nameWidth = max(0, nameWidth)
 	name := fitText(w.Name, nameWidth)
@@ -88,14 +94,21 @@ func CompactBar(w provider.Window, now time.Time, width, nameWidth int, r *lipgl
 		countdown = FormatCountdown(w.ResetsAt.Sub(now))
 	}
 	barWidth := max(8, width-nameWidth-runewidth.StringWidth(percent)-runewidth.StringWidth(countdown)-3)
-	return name + " " + renderBar(w, barWidth, r) + " " + r.NewStyle().Foreground(Band(w.RemainingPercent, w.RateLimited)).Bold(true).Render(percent) + " " + countdown
+	if dim {
+		countdown = r.NewStyle().Foreground(Neutral).Faint(true).Render(countdown)
+	}
+	return name + " " + renderBar(w, barWidth, dim, r) + " " + bandStyle(Band(w.RemainingPercent, w.RateLimited), dim, r).Render(percent) + " " + countdown
 }
 
-func barLine(w provider.Window, width int, r *lipgloss.Renderer) string {
-	return renderBar(w, width, r)
+// bandStyle is the band colour in bold, or faint when dim.
+func bandStyle(band lipgloss.Color, dim bool, r *lipgloss.Renderer) lipgloss.Style {
+	if dim {
+		return r.NewStyle().Foreground(band).Faint(true)
+	}
+	return r.NewStyle().Foreground(band).Bold(true)
 }
 
-func renderBar(w provider.Window, width int, r *lipgloss.Renderer) string {
+func renderBar(w provider.Window, width int, dim bool, r *lipgloss.Renderer) string {
 	if width <= 0 {
 		return ""
 	}
@@ -112,7 +125,7 @@ func renderBar(w provider.Window, width int, r *lipgloss.Renderer) string {
 	if r.ColorProfile() == termenv.Ascii {
 		track = "─"
 	}
-	return r.NewStyle().Foreground(Band(w.RemainingPercent, w.RateLimited)).Bold(true).Render(strings.Repeat("━", filled)) +
+	return bandStyle(Band(w.RemainingPercent, w.RateLimited), dim, r).Render(strings.Repeat("━", filled)) +
 		r.NewStyle().Foreground(Neutral).Faint(true).Render(strings.Repeat(track, width-filled))
 }
 

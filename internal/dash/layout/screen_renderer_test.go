@@ -10,6 +10,7 @@ import (
 	"github.com/Harrison-Blair/qmeter/internal/provider"
 	"github.com/Harrison-Blair/qmeter/internal/usage"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 )
 
@@ -37,5 +38,37 @@ func TestScreenReusesProvidedRenderer(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("Screen created %d renderers despite a provided renderer", calls)
+	}
+}
+
+func TestHeaderLineDropsNowThenTheWholeRightSide(t *testing.T) {
+	renderer := lipgloss.NewRenderer(io.Discard)
+	renderer.SetColorProfile(termenv.Ascii)
+	options := ScreenOptions{
+		Now:       time.Date(2026, 9, 16, 14, 22, 7, 0, time.Local),
+		FetchedAt: time.Date(2026, 9, 16, 21, 23, 41, 0, time.Local),
+	}
+	left := "qmeter 1 provider · 0 windows · 0 balances"
+	for _, tc := range []struct {
+		name  string
+		width int
+		want  string
+	}{
+		{"full right side", 74, left + " fetched 21:23:41 · now 14:22:07"},
+		{"full right side with padding", 80, left + "       fetched 21:23:41 · now 14:22:07"},
+		{"fetched alone", 73, left + "               fetched 21:23:41"},
+		{"fetched alone at its least width", 59, left + " fetched 21:23:41"},
+		{"left side only", 58, left + "                "},
+		{"left side cut", 30, "qmeter 1 provider · 0 windows…"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := headerLine(usage.Result{}, 1, tc.width, options, renderer)
+			if got != tc.want {
+				t.Fatalf("headerLine at %d cells:\ngot  %q\nwant %q", tc.width, got, tc.want)
+			}
+			if cells := runewidth.StringWidth(got); cells != tc.width {
+				t.Fatalf("headerLine has %d cells, want %d", cells, tc.width)
+			}
+		})
 	}
 }
